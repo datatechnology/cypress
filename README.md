@@ -8,3 +8,9 @@ An integrated web server and websocket framework
 4. MVC support
 5. Redis based session store support
 6. context for all, supports cancellation and correlation logging
+
+## build
+
+`go get github.com/bytewayio/grab`
+`grab`
+`go build`

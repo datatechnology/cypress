@@ -1,0 +1,7 @@
+github.com/gorilla/sessions
+github.com/gorilla/handlers
+github.com/gorilla/mux
+github.com/gorilla/websocket
+go.uber.org/zap
+gopkg.in/natefinch/lumberjack.v2
+github.com/satori/go.uuid
