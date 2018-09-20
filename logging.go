@@ -1,7 +1,6 @@
 package cypress
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,12 +14,6 @@ import (
 
 // LogLevel logging level
 type LogLevel int32
-
-// ContextKey key type for context values
-type ContextKey struct{}
-
-// TraceActivityIDKey context key for trace activity id
-var TraceActivityIDKey = ContextKey{}
 
 const (
 	// LogLevelDebug debug logging level
@@ -36,10 +29,33 @@ const (
 	LogLevelError
 )
 
-const (
+var (
 	// CorrelationIDHeader http header name for correlation id header
-	CorrelationIDHeader = "x-correlation-id"
+	CorrelationIDHeader = http.CanonicalHeaderKey("x-correlation-id")
 )
+
+type traceableResponseWriter struct {
+	statusCode    int
+	contentLength int
+	writer        http.ResponseWriter
+}
+
+func (w *traceableResponseWriter) Header() http.Header {
+	return w.writer.Header()
+}
+
+func (w *traceableResponseWriter) Write(data []byte) (int, error) {
+	if data != nil {
+		w.contentLength = len(data)
+	}
+
+	return w.writer.Write(data)
+}
+
+func (w *traceableResponseWriter) WriteHeader(statusCode int) {
+	w.statusCode = statusCode
+	w.writer.WriteHeader(statusCode)
+}
 
 // NewRollingLogWriter returns a new file based rolling log writer
 // maxSizeInMegaBytes specifies the maximum size of each log file, while maxRotationFiles
@@ -78,6 +94,20 @@ func SetupLogger(level LogLevel, writer io.Writer) {
 // LoggingHandler http incoming logging handler
 func LoggingHandler(handler http.Handler) http.Handler {
 	handlerFunction := func(writer http.ResponseWriter, request *http.Request) {
+		// log panic error
+		defer func() {
+			if err := recover(); err != nil {
+				defer zap.L().Sync()
+				zap.L().Error(fmt.Sprint(err),
+					zap.String("requestUri", request.URL.String()),
+					zap.String("path", request.URL.Path),
+					zap.String("requestMethod", request.Method),
+					zap.Stack("source"))
+				writer.WriteHeader(http.StatusInternalServerError)
+				writer.Write([]byte("<h1>Unknown error, please contact administrator</h1>"))
+			}
+		}()
+
 		var correlationID string
 		var activityID string
 		timeNow := time.Now()
@@ -100,17 +130,35 @@ func LoggingHandler(handler http.Handler) http.Handler {
 			activityID = "no-activity-id"
 		}
 
-		request.WithContext(context.WithValue(request.Context(), TraceActivityIDKey, activityID))
-		handler.ServeHTTP(writer, request)
+		tw := &traceableResponseWriter{
+			statusCode:    200,
+			contentLength: 0,
+			writer:        writer,
+		}
+		newRequest := request.WithContext(extentContext(request.Context()).withValue(TraceActivityIDKey, activityID))
+		handler.ServeHTTP(tw, newRequest)
 
 		elapsed := time.Since(timeNow)
-		zap.L().Info(fmt.Sprintf("request %s served", request.URL),
+		user := "anonymous"
+		userProvider := "none"
+		if userPrincipal, ok := newRequest.Context().Value(UserPrincipalKey).(*UserPrincipal); ok {
+			user = userPrincipal.ID
+			userProvider = userPrincipal.Provider
+		}
+
+		zap.L().Info(fmt.Sprintf("request %s served", newRequest.URL),
 			zap.String("correlationId", correlationID),
 			zap.String("activityId", activityID),
-			zap.String("requestUri", request.URL.String()),
-			zap.String("requestMethod", request.Method),
-			zap.Int("responseStatus", request.Response.StatusCode),
-			zap.Int("latency", int(elapsed.Nanoseconds()/1000)))
+			zap.String("requestUri", newRequest.URL.String()),
+			zap.String("path", newRequest.URL.Path),
+			zap.String("requestMethod", newRequest.Method),
+			zap.String("user", user),
+			zap.String("userProvider", userProvider),
+			zap.String("remoteAddr", newRequest.RemoteAddr),
+			zap.Int("responseStatus", tw.statusCode),
+			zap.Int("responseBytes", tw.contentLength),
+			zap.Int("latency", int(elapsed.Seconds()*1000)))
+		defer zap.L().Sync()
 	}
 
 	return http.HandlerFunc(handlerFunction)
