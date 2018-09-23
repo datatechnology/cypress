@@ -10,6 +10,7 @@ import (
 const (
 	TraceActivityIDKey = "TraceActivityID"
 	UserPrincipalKey   = "UserPrincipal"
+	SessionKey         = "UserSession"
 )
 
 type multiValueCtx struct {

@@ -58,13 +58,22 @@ func TestWebServer(t *testing.T) {
 		wr.WriteHeader(http.StatusAccepted)
 		time.Sleep(time.Millisecond * 50)
 		fmt.Fprintf(wr, "<h1>hello, %s</h1>", r.URL.String())
+
+		session, _ := r.Context().Value(SessionKey).(*Session)
+		if session != nil {
+			fmt.Println("SESSID:", session.ID)
+		} else {
+			t.Error("no session detected while one expected")
+		}
 	})
 	router.HandleFunc("/panic", func(wr http.ResponseWriter, r *http.Request) {
 		panic("ask for panic")
 	})
 
-	handler := handlers.ProxyHeaders(router)
-	handler = LoggingHandler(securityHandler.WithPipeline(handler))
+	handler := http.Handler(securityHandler.WithPipeline(router))
+	handler = NewSessionHandler(handler, NewInMemorySessionStore(), 15*time.Minute)
+	handler = LoggingHandler(handler)
+	handler = handlers.ProxyHeaders(handler)
 	http.Handle("/", handler)
 	go func() {
 		if err := s.ListenAndServe(); err != nil {
