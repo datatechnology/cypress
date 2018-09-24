@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/handlers"
+	"github.com/gorilla/websocket"
 
 	"github.com/gorilla/mux"
 )
@@ -42,6 +43,32 @@ func (p *TestUserProvider) Load(domain, id string) *UserPrincipal {
 	}
 }
 
+type TestWsListener struct{}
+
+func (l *TestWsListener) OnConnect(session *WebSocketSession) {
+	fmt.Println("a websocket with session id", session.Session.ID, "is connected")
+}
+
+func (l *TestWsListener) OnClose(session *WebSocketSession, reason int) {
+	fmt.Println("a websocket with session id", session.Session.ID, "has closed with reason", reason)
+}
+
+func (l *TestWsListener) OnTextMessage(session *WebSocketSession, message string) {
+	fmt.Println("receive a text message", message)
+	err := session.SendTextMessage(message)
+	if err != nil {
+		fmt.Println("failed to send message due to error", err)
+	}
+}
+
+func (l *TestWsListener) OnBinaryMessage(session *WebSocketSession, message []byte) {
+	fmt.Println("receive a binary message")
+	err := session.SendBinaryMessage(message)
+	if err != nil {
+		fmt.Println("failed to send message due to error", err)
+	}
+}
+
 func TestWebServer(t *testing.T) {
 	s := &http.Server{
 		Addr: ":8099",
@@ -52,6 +79,10 @@ func TestWebServer(t *testing.T) {
 
 	securityHandler := NewSecurityHandler()
 	securityHandler.AddUserProvider(&TestUserProvider{})
+
+	wsHandler := &WebSocketHandler{
+		Listener: &TestWsListener{},
+	}
 
 	router := mux.NewRouter()
 	router.HandleFunc("/greeting", func(wr http.ResponseWriter, r *http.Request) {
@@ -69,6 +100,8 @@ func TestWebServer(t *testing.T) {
 	router.HandleFunc("/panic", func(wr http.ResponseWriter, r *http.Request) {
 		panic("ask for panic")
 	})
+
+	router.HandleFunc("/ws/echo", wsHandler.Handle)
 
 	handler := http.Handler(securityHandler.WithPipeline(router))
 	handler = NewSessionHandler(handler, NewInMemorySessionStore(), 15*time.Minute)
@@ -97,4 +130,18 @@ func TestWebServer(t *testing.T) {
 	}
 
 	fmt.Print(string(body))
+
+	// try websocket
+	c, _, err := websocket.DefaultDialer.Dial("ws://localhost:8099/ws/echo", nil)
+	if err != nil {
+		t.Error("dial:", err)
+		return
+	}
+
+	defer c.Close()
+	c.WriteMessage(websocket.TextMessage, []byte("Hello, websocket!"))
+	msgType, msg, err := c.ReadMessage()
+	if msgType != websocket.TextMessage || err != nil || string(msg) != "Hello, websocket!" {
+		t.Error("failed to read back the message")
+	}
 }

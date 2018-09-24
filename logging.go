@@ -1,8 +1,11 @@
 package cypress
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"time"
 
@@ -55,6 +58,15 @@ func (w *traceableResponseWriter) Write(data []byte) (int, error) {
 func (w *traceableResponseWriter) WriteHeader(statusCode int) {
 	w.statusCode = statusCode
 	w.writer.WriteHeader(statusCode)
+}
+
+func (w *traceableResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := w.writer.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("the ResponseWriter doesn't support the Hijacker interface")
+	}
+
+	return hijacker.Hijack()
 }
 
 // NewRollingLogWriter returns a new file based rolling log writer
