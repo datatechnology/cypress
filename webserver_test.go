@@ -8,10 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/handlers"
 	"github.com/gorilla/websocket"
-
-	"github.com/gorilla/mux"
 )
 
 type TestUserProvider struct{}
@@ -69,54 +66,54 @@ func (l *TestWsListener) OnBinaryMessage(session *WebSocketSession, message []by
 	}
 }
 
+func testActions(t *testing.T) []Action {
+	actions := []Action{
+		Action{
+			Name: "greeting",
+			Handler: http.HandlerFunc(func(wr http.ResponseWriter, r *http.Request) {
+				wr.WriteHeader(http.StatusAccepted)
+				time.Sleep(time.Millisecond * 50)
+				fmt.Fprintf(wr, "<h1>hello, %s</h1>", r.URL.String())
+
+				session, _ := r.Context().Value(SessionKey).(*Session)
+				if session != nil {
+					fmt.Println("SESSID:", session.ID)
+				} else {
+					t.Error("no session detected while one expected")
+				}
+			}),
+		},
+		Action{
+			Name: "panic",
+			Handler: http.HandlerFunc(func(wr http.ResponseWriter, r *http.Request) {
+				panic("ask for panic")
+			}),
+		},
+	}
+
+	return actions[:]
+}
+
 func TestWebServer(t *testing.T) {
-	s := &http.Server{
-		Addr: ":8099",
-	}
-	defer s.Shutdown(nil)
-
 	SetupLogger(LogLevelDebug, os.Stdout)
+	server := NewWebServer(":8099")
+	defer server.Shutdown()
 
-	securityHandler := NewSecurityHandler()
-	securityHandler.AddUserProvider(&TestUserProvider{})
+	server.AddUserProvider(&TestUserProvider{})
+	server.WithSessionOptions(NewInMemorySessionStore(), 15*time.Minute)
+	server.WithStandardRouting("/web")
+	server.AddWsEndoint("/ws/echo", &TestWsListener{})
+	server.RegisterController("test", ControllerFunc(func() []Action { return testActions(t) }))
 
-	wsHandler := &WebSocketHandler{
-		Listener: &TestWsListener{},
-	}
-
-	router := mux.NewRouter()
-	router.HandleFunc("/greeting", func(wr http.ResponseWriter, r *http.Request) {
-		wr.WriteHeader(http.StatusAccepted)
-		time.Sleep(time.Millisecond * 50)
-		fmt.Fprintf(wr, "<h1>hello, %s</h1>", r.URL.String())
-
-		session, _ := r.Context().Value(SessionKey).(*Session)
-		if session != nil {
-			fmt.Println("SESSID:", session.ID)
-		} else {
-			t.Error("no session detected while one expected")
-		}
-	})
-	router.HandleFunc("/panic", func(wr http.ResponseWriter, r *http.Request) {
-		panic("ask for panic")
-	})
-
-	router.HandleFunc("/ws/echo", wsHandler.Handle)
-
-	handler := http.Handler(securityHandler.WithPipeline(router))
-	handler = NewSessionHandler(handler, NewInMemorySessionStore(), 15*time.Minute)
-	handler = LoggingHandler(handler)
-	handler = handlers.ProxyHeaders(handler)
-	http.Handle("/", handler)
 	go func() {
-		if err := s.ListenAndServe(); err != nil {
+		if err := server.Start(); err != nil {
 			fmt.Println(err)
 		}
 	}()
 
 	// wait for the server to start
 	time.Sleep(time.Second)
-	resp, err := http.Get("http://localhost:8099/greeting?ticket=test")
+	resp, err := http.Get("http://localhost:8099/web/test/greeting?ticket=test")
 	if err != nil {
 		t.Error("server is not started or working properly")
 		return
