@@ -102,6 +102,13 @@ func (server *WebServer) AddWsEndoint(endpoint string, listener WebSocketListene
 	return server
 }
 
+// AddStaticResource adds a static resource folder to the server with the given prefix,
+// the prefix must be in format of "/prefix/"
+func (server *WebServer) AddStaticResource(prefix, dir string) *WebServer {
+	server.router.PathPrefix(prefix).Handler(http.StripPrefix(prefix, http.FileServer(http.Dir(dir))))
+	return server
+}
+
 // WithSessionOptions setup the session options including the session store and session timeout interval
 func (server *WebServer) WithSessionOptions(store SessionStore, timeout time.Duration) *WebServer {
 	server.sessionStore = store

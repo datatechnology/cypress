@@ -5,3 +5,4 @@ go.uber.org/zap
 gopkg.in/natefinch/lumberjack.v2
 github.com/gofrs/uuid
 github.com/go-redis/redis
+github.com/go-sql-driver/mysql
