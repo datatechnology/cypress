@@ -74,7 +74,7 @@ func TestDbUsage(t *testing.T) {
 	}
 
 	defer tx.Rollback()
-	objs, err = QueryAll(ctx, db, mapper, "select id, name, year_birth from member order by id asc")
+	objs, err = QueryAll(ctx, tx, mapper, "select id, name, year_birth from member order by id asc")
 	if err != nil {
 		t.Error(err)
 		return
