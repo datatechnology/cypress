@@ -60,6 +60,12 @@ func NewWebServer(listenAddr string) *WebServer {
 	}
 }
 
+// HandleFunc register a handle function for a path pattern
+func (server *WebServer) HandleFunc(path string, f func(w http.ResponseWriter, r *http.Request)) *WebServer {
+	server.router.HandleFunc(path, f)
+	return server
+}
+
 // WithStandardRouting setup a routing as "prefix" + "/{controller:[_a-zA-Z][_a-zA-Z0-9]*}/{action:[_a-zA-Z][_a-zA-Z0-9]*}"
 // and the web server will route the requests based on the registered controllers.
 func (server *WebServer) WithStandardRouting(prefix string) *WebServer {
