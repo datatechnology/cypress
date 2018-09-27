@@ -60,9 +60,9 @@ func QueryOne(ctx context.Context, queryable Queryable, mapper RowMapper, query 
 // QueryAll query all rows and map them to objects
 func QueryAll(ctx context.Context, queryable Queryable, mapper RowMapper, query string, args ...interface{}) ([]interface{}, error) {
 	var err error
-	begin := time.Now()
+	start := time.Now()
 	defer func(e error) {
-		latency := time.Since(begin)
+		latency := time.Since(start)
 		zap.L().Info("queryAll", zap.Int("latency", int(latency.Seconds()*1000)), zap.Bool("success", e == sql.ErrNoRows || e == nil))
 	}(err)
 
