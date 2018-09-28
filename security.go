@@ -125,8 +125,7 @@ func (handler *SecurityHandler) ServeHTTP(writer http.ResponseWriter, request *h
 			writer.WriteHeader(http.StatusForbidden)
 			writer.Write([]byte("Access denied"))
 		} else {
-			writer.WriteHeader(http.StatusTemporaryRedirect)
-			writer.Header().Add("Location", handler.loginURL)
+			http.Redirect(writer, request, handler.loginURL, http.StatusTemporaryRedirect)
 		}
 	}
 }
