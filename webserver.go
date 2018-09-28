@@ -99,6 +99,12 @@ func (server *WebServer) AddUserProvider(provider UserProvider) *WebServer {
 	return server
 }
 
+// WithAuthz specify the AuthorizationManager to be used by this handler
+func (server *WebServer) WithAuthz(authz AuthorizationManager) *WebServer {
+	server.securityHandler.WithAuthz(authz)
+	return server
+}
+
 // AddWsEndoint adds a web socket endpoint to the server
 func (server *WebServer) AddWsEndoint(endpoint string, listener WebSocketListener) *WebServer {
 	wsHandler := &WebSocketHandler{
