@@ -105,6 +105,12 @@ func (server *WebServer) WithAuthz(authz AuthorizationManager) *WebServer {
 	return server
 }
 
+// WithLoginURL the URL to redirect if the access is denied
+func (server *WebServer) WithLoginURL(loginURL string) *WebServer {
+	server.securityHandler.WithLoginURL(loginURL)
+	return server
+}
+
 // AddWsEndoint adds a web socket endpoint to the server
 func (server *WebServer) AddWsEndoint(endpoint string, listener WebSocketListener) *WebServer {
 	wsHandler := &WebSocketHandler{
