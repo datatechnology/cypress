@@ -146,7 +146,7 @@ func (handler *sessionHandler) ServeHTTP(writer http.ResponseWriter, request *ht
 	if err == nil {
 		session, err = handler.store.Get(cookie.Value)
 		if err != nil && err != ErrSessionNotFound {
-			zap.L().Error("Not able to get session from session store", zap.String("error", err.Error()))
+			zap.L().Error("Not able to get session from session store", zap.Error(err))
 		}
 	}
 
@@ -166,7 +166,7 @@ func (handler *sessionHandler) ServeHTTP(writer http.ResponseWriter, request *ht
 		if session.NeedSave() {
 			saveError := handler.store.Save(session, handler.timeout)
 			if saveError != nil {
-				zap.L().Error("Not able to save the session", zap.String("error", err.Error()))
+				zap.L().Error("Not able to save the session", zap.Error(err))
 			}
 		}
 	}()

@@ -68,7 +68,7 @@ func (store *fileSessionStore) Save(session *Session, timeout time.Duration) err
 		// remove the session as it's set to invalid
 		err := os.Remove(filePath)
 		if err != nil {
-			zap.L().Error("failed to remove session file", zap.String("error", err.Error()))
+			zap.L().Error("failed to remove session file", zap.Error(err))
 		}
 
 		return nil
@@ -149,7 +149,7 @@ func (store *fileSessionStore) readSession(id string) (*fileSessionItem, error) 
 func (store *fileSessionStore) doGC() {
 	files, err := ioutil.ReadDir(store.path)
 	if err != nil {
-		zap.L().Error("failed to run GC on file session store", zap.String("error", err.Error()))
+		zap.L().Error("failed to run GC on file session store", zap.Error(err))
 		return
 	}
 
@@ -158,7 +158,7 @@ func (store *fileSessionStore) doGC() {
 		item, _ := store.readSession(file.Name())
 		if item != nil && item.Expiration.Before(now) {
 			os.Remove(path.Join(store.path, file.Name()))
-			zap.L().Debug("session file expired, clean up by GC", zap.String("file", file.Name()))
+			zap.L().Debug("session file expired, clean up by GC", zap.Error(err))
 		}
 	}
 }
