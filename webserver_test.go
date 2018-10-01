@@ -70,10 +70,9 @@ func testActions(t *testing.T) []Action {
 	actions := []Action{
 		Action{
 			Name: "greeting",
-			Handler: http.HandlerFunc(func(wr http.ResponseWriter, r *http.Request) {
-				wr.WriteHeader(http.StatusAccepted)
+			Handler: ActionHandler(func(r *http.Request, response *Response) {
 				time.Sleep(time.Millisecond * 50)
-				fmt.Fprintf(wr, "<h1>hello, %s</h1>", r.URL.String())
+				response.DoneWithContent(http.StatusAccepted, "text/html", []byte(fmt.Sprintf("<h1>Hello, %s</h1>", r.URL.String())))
 
 				session, _ := r.Context().Value(SessionKey).(*Session)
 				if session != nil {
@@ -85,8 +84,19 @@ func testActions(t *testing.T) []Action {
 		},
 		Action{
 			Name: "panic",
-			Handler: http.HandlerFunc(func(wr http.ResponseWriter, r *http.Request) {
+			Handler: ActionHandler(func(r *http.Request, response *Response) {
 				panic("ask for panic")
+			}),
+		},
+		Action{
+			Name: "index",
+			Handler: ActionHandler(func(request *http.Request, response *Response) {
+				model := &TestModel{
+					Title:   "Page Title",
+					Message: "Page Content",
+				}
+
+				response.DoneWithTemplate(http.StatusOK, model, "index.tmpl", "header.tmpl")
 			}),
 		},
 	}
@@ -96,7 +106,7 @@ func testActions(t *testing.T) []Action {
 
 func TestWebServer(t *testing.T) {
 	SetupLogger(LogLevelDebug, os.Stdout)
-	server := NewWebServer(":8099")
+	server := NewWebServer(":8099", NewTemplateManager("./test/tmpl", time.Second*10))
 	defer server.Shutdown()
 
 	server.AddUserProvider(&TestUserProvider{})
@@ -119,14 +129,40 @@ func TestWebServer(t *testing.T) {
 		return
 	}
 
-	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Error("Unexpected http status")
+		return
+	}
+
 	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		resp.Body.Close()
+		t.Error("failed to read body")
+		return
+	}
+
+	resp.Body.Close()
+	fmt.Println(string(body))
+
+	resp, err = http.Get("http://localhost:8099/web/test/index")
+	if err != nil {
+		t.Error("server is not started or working properly")
+		return
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		t.Error("Unexpected http status")
+		return
+	}
+
+	defer resp.Body.Close()
+	body, err = ioutil.ReadAll(resp.Body)
 	if err != nil {
 		t.Error("failed to read body")
 		return
 	}
 
-	fmt.Print(string(body))
+	fmt.Println(string(body))
 
 	// try websocket
 	c, _, err := websocket.DefaultDialer.Dial("ws://localhost:8099/ws/echo", nil)
