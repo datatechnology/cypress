@@ -116,7 +116,7 @@ func (handler *SecurityHandler) ServeHTTP(writer http.ResponseWriter, request *h
 		request.Context().(*multiValueCtx).withValue(UserPrincipalKey, userPrincipal)
 	}
 
-	if handler.authzMgr != nil ||
+	if handler.authzMgr == nil ||
 		handler.authzMgr.CheckAnonymousAccessible(request.Method, request.URL.Path) ||
 		(userPrincipal != nil && handler.authzMgr.CheckAccess(userPrincipal, request.Method, request.URL.Path)) {
 		handler.pipeline.ServeHTTP(writer, request)
