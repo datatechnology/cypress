@@ -118,6 +118,16 @@ func (session *Session) NeedSave() bool {
 	return session.isDirty
 }
 
+// GetSession helper function for getting session from request
+func GetSession(request *http.Request) *Session {
+	value := request.Context().Value(SessionKey)
+	if value != nil {
+		return value.(*Session)
+	}
+
+	return nil
+}
+
 // SessionStore interface for storing sessions
 type SessionStore interface {
 	// Save saves the session with timeout, the session cannot be
