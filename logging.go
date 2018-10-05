@@ -149,7 +149,7 @@ func LoggingHandler(handler http.Handler) http.Handler {
 		}
 
 		uuid, err := uuid.NewV4()
-		if err != nil {
+		if err == nil {
 			activityID = uuid.String()
 		} else {
 			activityID = "no-activity-id"
