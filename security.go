@@ -101,6 +101,18 @@ func (handler *SecurityHandler) WithLoginURL(loginURL string) *SecurityHandler {
 	return handler
 }
 
+// GetUser gets the UserPrincipal for the request
+func GetUser(request *http.Request) *UserPrincipal {
+	value := request.Context().Value(UserPrincipalKey)
+	if value != nil {
+		if user, ok := value.(*UserPrincipal); ok {
+			return user
+		}
+	}
+
+	return nil
+}
+
 // ServeHTTP implements the http.Handler interface
 func (handler *SecurityHandler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	var userPrincipal *UserPrincipal

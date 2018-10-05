@@ -33,9 +33,9 @@ func (mapper RowMapperFunc) Map(row Scannable) (interface{}, error) {
 }
 
 // LogExec log the sql Exec call result
-func LogExec(start time.Time, err error) {
+func LogExec(activityID string, start time.Time, err error) {
 	latency := time.Since(start)
-	zap.L().Info("execSql", zap.Int("latency", int(latency.Seconds()*1000)), zap.Bool("success", err == nil))
+	zap.L().Info("execSql", zap.Int("latency", int(latency.Seconds()*1000)), zap.Bool("success", err == nil), zap.String("activityId", activityID))
 }
 
 // QueryOne query one object
@@ -44,7 +44,7 @@ func QueryOne(ctx context.Context, queryable Queryable, mapper RowMapper, query 
 	start := time.Now()
 	defer func(e error) {
 		latency := time.Since(start)
-		zap.L().Info("queryOne", zap.Int("latency", int(latency.Seconds()*1000)), zap.Bool("success", e == sql.ErrNoRows || e == nil))
+		zap.L().Info("queryOne", zap.Int("latency", int(latency.Seconds()*1000)), zap.Bool("success", e == sql.ErrNoRows || e == nil), zap.String("activityId", GetTraceID(ctx)))
 	}(err)
 	row := queryable.QueryRowContext(ctx, query, args...)
 	obj, err := mapper.Map(row)
@@ -63,7 +63,7 @@ func QueryAll(ctx context.Context, queryable Queryable, mapper RowMapper, query 
 	start := time.Now()
 	defer func(e error) {
 		latency := time.Since(start)
-		zap.L().Info("queryAll", zap.Int("latency", int(latency.Seconds()*1000)), zap.Bool("success", e == sql.ErrNoRows || e == nil))
+		zap.L().Info("queryAll", zap.Int("latency", int(latency.Seconds()*1000)), zap.Bool("success", e == sql.ErrNoRows || e == nil), zap.String("activityId", GetTraceID(ctx)))
 	}(err)
 
 	rows, err := queryable.QueryContext(ctx, query, args...)

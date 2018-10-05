@@ -2,6 +2,7 @@ package cypress
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -103,6 +104,18 @@ func SetupLogger(level LogLevel, writer io.Writer) {
 	zap.ReplaceGlobals(logger)
 }
 
+// GetTraceID get the trace ID related to the context
+func GetTraceID(ctx context.Context) string {
+	value := ctx.Value(TraceActivityIDKey)
+	if value != nil {
+		if traceID, ok := value.(string); ok {
+			return traceID
+		}
+	}
+
+	return ""
+}
+
 // LoggingHandler http incoming logging handler
 func LoggingHandler(handler http.Handler) http.Handler {
 	handlerFunction := func(writer http.ResponseWriter, request *http.Request) {
@@ -159,6 +172,7 @@ func LoggingHandler(handler http.Handler) http.Handler {
 		}
 
 		zap.L().Info(fmt.Sprintf("request %s served", newRequest.URL),
+			zap.String("type", "apiCall"),
 			zap.String("correlationId", correlationID),
 			zap.String("activityId", activityID),
 			zap.String("requestUri", newRequest.URL.String()),
