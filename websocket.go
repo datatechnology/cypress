@@ -71,7 +71,7 @@ type WebSocketHandler struct {
 func (handler *WebSocketHandler) Handle(writer http.ResponseWriter, request *http.Request) {
 	conn, err := upgrader.Upgrade(writer, request, nil)
 	if err != nil {
-		zap.L().Error("failed to upgrade the incoming connection to a websocket", zap.String("error", err.Error()))
+		zap.L().Error("failed to upgrade the incoming connection to a websocket", zap.Error(err))
 		writer.WriteHeader(http.StatusBadRequest)
 		writer.Write([]byte("<h1>Bad request</h1>"))
 		return
@@ -124,7 +124,7 @@ func (handler *WebSocketHandler) connectionLoop(session *WebSocketSession) {
 
 		msgType, data, err := session.connection.ReadMessage()
 		if err != nil {
-			zap.L().Error("failed to read from ws peer", zap.String("error", err.Error()))
+			zap.L().Error("failed to read from ws peer", zap.Error(err))
 			handler.Listener.OnClose(session, websocket.CloseAbnormalClosure)
 			session.connection.Close()
 			return
