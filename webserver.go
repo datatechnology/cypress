@@ -220,7 +220,7 @@ func (server *WebServer) Start() error {
 
 func (server *WebServer) routeRequest(writer http.ResponseWriter, request *http.Request) {
 	routeVars := mux.Vars(request)
-	zap.L().Debug("routeRequest", zap.String("controller", routeVars["controller"]), zap.String("action", routeVars["action"]))
+	zap.L().Debug("routeRequest", zap.String("controller", routeVars["controller"]), zap.String("action", routeVars["action"]), zap.String("activityId", GetTraceID(request.Context())))
 	if routeVars != nil {
 		actions, ok := server.registeredHandlers[routeVars["controller"]]
 		if ok {
