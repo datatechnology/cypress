@@ -45,6 +45,10 @@ func (f ControllerFunc) ListActions() []Action {
 	return f()
 }
 
+type CustomHandler interface {
+	DoHandler(handler http.Handler) http.Handler
+}
+
 // WebServer a web server that supports auth & authz, logging,
 // session and web sockets
 type WebServer struct {
@@ -55,6 +59,7 @@ type WebServer struct {
 	sessionStore       SessionStore
 	sessionTimeout     time.Duration
 	registeredHandlers map[string]map[string]ActionHandler
+	customHandler	   CustomHandler
 }
 
 // SetHeader sets a header value for response
@@ -126,18 +131,13 @@ func NewWebServer(listenAddr string, tmplMgr *TemplateManager) *WebServer {
 		templateManager:    tmplMgr,
 		sessionTimeout:     time.Minute * 30,
 		registeredHandlers: make(map[string]map[string]ActionHandler),
+		customHandler: 		nil,
 	}
 }
 
 // HandleFunc register a handle function for a path pattern
 func (server *WebServer) HandleFunc(path string, f func(w http.ResponseWriter, r *http.Request)) *WebServer {
 	server.router.HandleFunc(path, f)
-	return server
-}
-
-// Use add middleware to router
-func (server *WebServer) Use(mwf mux.MiddlewareFunc) *WebServer {
-	server.router.Use(mwf)
 	return server
 }
 
@@ -186,6 +186,12 @@ func (server *WebServer) WithLoginURL(loginURL string) *WebServer {
 	return server
 }
 
+//WithCustomHandler add a handler implement CustomHandler
+func (server *WebServer) WithCustomHandler(handler CustomHandler) *WebServer {
+	server.customHandler = handler
+	return server
+}
+
 // AddWsEndoint adds a web socket endpoint to the server
 func (server *WebServer) AddWsEndoint(endpoint string, listener WebSocketListener) *WebServer {
 	wsHandler := &WebSocketHandler{
@@ -217,6 +223,9 @@ func (server *WebServer) Shutdown() {
 // Start starts the web server
 func (server *WebServer) Start() error {
 	handler := http.Handler(server.securityHandler.WithPipeline(server.router))
+	if server.customHandler != nil {
+		handler = server.customHandler.DoHandler(handler)
+	}
 	handler = NewSessionHandler(handler, server.sessionStore, server.sessionTimeout)
 	handler = LoggingHandler(handler)
 	handler = handlers.ProxyHeaders(handler)
