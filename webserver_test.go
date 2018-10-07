@@ -104,6 +104,15 @@ func testActions(t *testing.T) []Action {
 	return actions[:]
 }
 
+func printSessionID(handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		traceID := GetTraceID(request.Context())
+		session := GetSession(request)
+		fmt.Println(traceID, session.ID)
+		handler.ServeHTTP(writer, request)
+	})
+}
+
 func TestWebServer(t *testing.T) {
 	SetupLogger(LogLevelDebug, os.Stdout)
 	server := NewWebServer(":8099", NewTemplateManager("./test/tmpl", time.Second*10))
@@ -114,6 +123,7 @@ func TestWebServer(t *testing.T) {
 	server.WithStandardRouting("/web")
 	server.AddWsEndoint("/ws/echo", &TestWsListener{})
 	server.RegisterController("test", ControllerFunc(func() []Action { return testActions(t) }))
+	server.WithCustomHandler(CustomHandlerFunc(printSessionID))
 
 	go func() {
 		if err := server.Start(); err != nil {
