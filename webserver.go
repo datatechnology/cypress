@@ -45,8 +45,19 @@ func (f ControllerFunc) ListActions() []Action {
 	return f()
 }
 
+// CustomHandler a handler that is executed after session is setup/restored
 type CustomHandler interface {
-	DoHandler(handler http.Handler) http.Handler
+	// PipelineWith returns a http.Handler that will execute the given handler
+	// after the custom handler code is done.
+	PipelineWith(handler http.Handler) http.Handler
+}
+
+// CustomHandlerFunc a function that implements CustomHandler
+type CustomHandlerFunc func(handler http.Handler) http.Handler
+
+// PipelineWith implements CustomHandler interface
+func (h CustomHandlerFunc) PipelineWith(handler http.Handler) http.Handler {
+	return h(handler)
 }
 
 // WebServer a web server that supports auth & authz, logging,
@@ -59,7 +70,7 @@ type WebServer struct {
 	sessionStore       SessionStore
 	sessionTimeout     time.Duration
 	registeredHandlers map[string]map[string]ActionHandler
-	customHandler	   CustomHandler
+	customHandler      CustomHandler
 }
 
 // SetHeader sets a header value for response
@@ -131,7 +142,7 @@ func NewWebServer(listenAddr string, tmplMgr *TemplateManager) *WebServer {
 		templateManager:    tmplMgr,
 		sessionTimeout:     time.Minute * 30,
 		registeredHandlers: make(map[string]map[string]ActionHandler),
-		customHandler: 		nil,
+		customHandler:      nil,
 	}
 }
 
@@ -224,8 +235,9 @@ func (server *WebServer) Shutdown() {
 func (server *WebServer) Start() error {
 	handler := http.Handler(server.securityHandler.WithPipeline(server.router))
 	if server.customHandler != nil {
-		handler = server.customHandler.DoHandler(handler)
+		handler = server.customHandler.PipelineWith(handler)
 	}
+
 	handler = NewSessionHandler(handler, server.sessionStore, server.sessionTimeout)
 	handler = LoggingHandler(handler)
 	handler = handlers.ProxyHeaders(handler)
