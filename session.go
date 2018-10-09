@@ -166,6 +166,7 @@ func (handler *sessionHandler) ServeHTTP(writer http.ResponseWriter, request *ht
 			Name:   sessionIDCookieKey,
 			Value:  session.ID,
 			MaxAge: 60 * 60 * 24, // for one day
+			Path: 	"/",
 		}
 
 		http.SetCookie(writer, cookie)

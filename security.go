@@ -115,6 +115,12 @@ func GetUser(request *http.Request) *UserPrincipal {
 
 // ServeHTTP implements the http.Handler interface
 func (handler *SecurityHandler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	if handler.authzMgr == nil ||
+		handler.authzMgr.CheckAnonymousAccessible(request.Method, request.URL.Path) {
+		handler.pipeline.ServeHTTP(writer, request)
+		return
+	}
+
 	var userPrincipal *UserPrincipal
 	for _, provider := range handler.userProviders {
 		userPrincipal = provider.Authenticate(request)
@@ -128,9 +134,7 @@ func (handler *SecurityHandler) ServeHTTP(writer http.ResponseWriter, request *h
 		request.Context().(*multiValueCtx).withValue(UserPrincipalKey, userPrincipal)
 	}
 
-	if handler.authzMgr == nil ||
-		handler.authzMgr.CheckAnonymousAccessible(request.Method, request.URL.Path) ||
-		(userPrincipal != nil && handler.authzMgr.CheckAccess(userPrincipal, request.Method, request.URL.Path)) {
+	if userPrincipal != nil && handler.authzMgr.CheckAccess(userPrincipal, request.Method, request.URL.Path) {
 		handler.pipeline.ServeHTTP(writer, request)
 	} else {
 		if handler.loginURL == "" {
