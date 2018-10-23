@@ -14,14 +14,19 @@ type TestModel struct {
 
 func TestTemplateManager(t *testing.T) {
 	SetupLogger(LogLevelDebug, os.Stdout)
+
+	funcMap := template.FuncMap{
+		"add": func(a, b int32) int32 { return a + b},
+	}
+
 	tmplMgr := NewTemplateManager("./test/tmpl", time.Second)
-	tmpl, err := tmplMgr.GetOrCreateTemplate("index.tmpl", "header.tmpl")
+	tmpl, err := tmplMgr.GetOrCreateTemplate(funcMap, "index.tmpl", "header.tmpl")
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	tmpl1, err := tmplMgr.GetOrCreateTemplate("index1.tmpl", "header.tmpl")
+	tmpl1, err := tmplMgr.GetOrCreateTemplate(nil, "index1.tmpl", "header.tmpl")
 	if err != nil {
 		t.Error(err)
 		return
@@ -33,7 +38,7 @@ func TestTemplateManager(t *testing.T) {
 	tmpl1.Execute(os.Stdout, model)
 	fmt.Println()
 
-	tmpl2, err := tmplMgr.GetOrCreateTemplate("index.tmpl", "header.tmpl")
+	tmpl2, err := tmplMgr.GetOrCreateTemplate(funcMap, "index.tmpl", "header.tmpl")
 	if err != nil {
 		t.Error(err)
 		return

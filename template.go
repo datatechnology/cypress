@@ -63,7 +63,7 @@ func NewTemplateManager(dir string, refreshInterval time.Duration) *TemplateMana
 
 // GetOrCreateTemplate gets a template from cache or create a new template
 // if no cache found
-func (manager *TemplateManager) GetOrCreateTemplate(files ...string) (*template.Template, error) {
+func (manager *TemplateManager) GetOrCreateTemplate(funcMap template.FuncMap, files ...string) (*template.Template, error) {
 	if len(files) == 0 {
 		return nil, ErrNoFile
 	}
@@ -82,7 +82,8 @@ func (manager *TemplateManager) GetOrCreateTemplate(files ...string) (*template.
 		resolvedFiles[index] = path.Join(manager.dir, file)
 	}
 
-	tmpl, err := template.ParseFiles(resolvedFiles...)
+	tmpl = template.New(name).Funcs(funcMap)
+	tmpl, err := tmpl.ParseFiles(resolvedFiles...)
 	if err != nil {
 		return nil, err
 	}
