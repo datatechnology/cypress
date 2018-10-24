@@ -2,6 +2,7 @@ package cypress
 
 import (
 	"fmt"
+	"html/template"
 	"os"
 	"testing"
 	"time"
@@ -14,7 +15,12 @@ type TestModel struct {
 
 func TestTemplateManager(t *testing.T) {
 	SetupLogger(LogLevelDebug, os.Stdout)
-	tmplMgr := NewTemplateManager("./test/tmpl", time.Second)
+
+	funcMap := template.FuncMap{
+		"add": func(a, b int32) int32 { return a + b },
+	}
+
+	tmplMgr := NewTemplateManager("./test/tmpl", time.Second).Funcs(funcMap)
 	tmpl, err := tmplMgr.GetOrCreateTemplate("index.tmpl", "header.tmpl")
 	if err != nil {
 		t.Error(err)
