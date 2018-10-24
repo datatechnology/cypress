@@ -105,8 +105,8 @@ func (r *Response) DoneWithContent(statusCode int, contentType string, content [
 
 // DoneWithTemplate sets the status and write the model with the given template name as
 // response, the content type is defaulted to text/html
-func (r *Response) DoneWithTemplate(statusCode int, model interface{}, funcMap template.FuncMap, tmplFiles ...string) {
-	tmpl, err := r.tmplMgr.GetOrCreateTemplate(funcMap, tmplFiles...)
+func (r *Response) DoneWithTemplate(statusCode int, model interface{}, tmplFiles ...string) {
+	tmpl, err := r.tmplMgr.GetOrCreateTemplate(tmplFiles...)
 	if err != nil {
 		zap.L().Error("failedToGetTemplate", zap.Error(err), zap.String("file", tmplFiles[0]))
 		r.SetStatus(http.StatusInternalServerError)

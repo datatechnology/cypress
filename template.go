@@ -37,6 +37,7 @@ type TemplateManager struct {
 	fileLock  *sync.RWMutex
 	files     map[string]*templateFileInfo
 	refresher *time.Ticker
+	funcs     template.FuncMap
 }
 
 // NewTemplateManager creates a template manager for the given dir
@@ -48,6 +49,7 @@ func NewTemplateManager(dir string, refreshInterval time.Duration) *TemplateMana
 		fileLock:  &sync.RWMutex{},
 		files:     make(map[string]*templateFileInfo),
 		refresher: time.NewTicker(refreshInterval),
+		funcs:     nil,
 	}
 
 	go func() {
@@ -61,9 +63,15 @@ func NewTemplateManager(dir string, refreshInterval time.Duration) *TemplateMana
 	return mgr
 }
 
+// Funcs add a funcMap to TemplateManager
+func (manager *TemplateManager) Funcs(funcMap template.FuncMap) *TemplateManager {
+	manager.funcs = funcMap
+	return manager
+}
+
 // GetOrCreateTemplate gets a template from cache or create a new template
 // if no cache found
-func (manager *TemplateManager) GetOrCreateTemplate(funcMap template.FuncMap, files ...string) (*template.Template, error) {
+func (manager *TemplateManager) GetOrCreateTemplate(files ...string) (*template.Template, error) {
 	if len(files) == 0 {
 		return nil, ErrNoFile
 	}
@@ -82,7 +90,7 @@ func (manager *TemplateManager) GetOrCreateTemplate(funcMap template.FuncMap, fi
 		resolvedFiles[index] = path.Join(manager.dir, file)
 	}
 
-	tmpl = template.New(name).Funcs(funcMap)
+	tmpl = template.New(name).Funcs(manager.funcs)
 	tmpl, err := tmpl.ParseFiles(resolvedFiles...)
 	if err != nil {
 		return nil, err
