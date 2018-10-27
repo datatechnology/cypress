@@ -13,10 +13,57 @@ var (
 	// ErrUnknownColumn no field to map the column
 	ErrUnknownColumn = errors.New("don't know how to map the column")
 )
-var fieldNameCache = sync.Map{}
+var fieldNameCache = newNameMappingCache()
+
+type cacheEntry struct {
+	cache map[string]string
+	lock  *sync.RWMutex
+}
+
+type nameMappingCache struct {
+	cache map[string]*cacheEntry
+	lock  *sync.RWMutex
+}
 
 type smartMapper struct {
 	value interface{}
+}
+
+func newNameMappingCache() *nameMappingCache {
+	return &nameMappingCache{make(map[string]*cacheEntry), &sync.RWMutex{}}
+}
+
+func (c *nameMappingCache) getCacheEntry(typeName string) *cacheEntry {
+	c.lock.RLock()
+	entry, ok := c.cache[typeName]
+	c.lock.RUnlock()
+	if !ok {
+		c.lock.Lock()
+		entry, ok = c.cache[typeName]
+		if !ok {
+			entry = &cacheEntry{make(map[string]string), &sync.RWMutex{}}
+			c.cache[typeName] = entry
+		}
+
+		c.lock.Unlock()
+	}
+
+	return entry
+}
+
+func (c *nameMappingCache) get(typeName, columnName string) (string, bool) {
+	entry := c.getCacheEntry(typeName)
+	entry.lock.RLock()
+	defer entry.lock.RUnlock()
+	value, ok := entry.cache[columnName]
+	return value, ok
+}
+
+func (c *nameMappingCache) put(typeName, columnName, fieldName string) {
+	entry := c.getCacheEntry(typeName)
+	entry.lock.Lock()
+	defer entry.lock.Unlock()
+	entry.cache[columnName] = fieldName
 }
 
 // NewSmartMapper creates a smart row mapper for data row
@@ -57,13 +104,10 @@ func (mapper *smartMapper) Map(row DataRow) (interface{}, error) {
 	valueType = valueType.Elem()
 	typeID := valueType.PkgPath() + "/" + valueType.Name()
 	value := reflect.New(valueType)
-	entryValue, _ := fieldNameCache.LoadOrStore(typeID, &sync.Map{})
-	nameCache := entryValue.(*sync.Map)
 	values := make([]interface{}, len(columns))
 
 	for index, name := range columns {
-		var fieldName string
-		entryValue, ok := nameCache.Load(name)
+		fieldName, ok := fieldNameCache.get(typeID, name)
 		if !ok {
 			_, ok := valueType.FieldByName(name)
 			if !ok {
@@ -77,15 +121,16 @@ func (mapper *smartMapper) Map(row DataRow) (interface{}, error) {
 			} else {
 				fieldName = name
 			}
-		} else {
-			fieldName = entryValue.(string)
+
+			if fieldName != "" {
+				fieldNameCache.put(typeID, name, fieldName)
+			}
 		}
 
 		if fieldName == "" {
 			return nil, ErrUnknownColumn
 		}
 
-		nameCache.Store(name, fieldName)
 		fieldValue := value.Elem().FieldByName(fieldName)
 		if fieldValue.Type().Kind() == reflect.Ptr {
 			values[index] = fieldValue.Interface()

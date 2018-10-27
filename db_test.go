@@ -17,7 +17,7 @@ type member struct {
 }
 
 func TestDbUsage(t *testing.T) {
-	db, err := sql.Open("mysql", "root:pass@tcp(localhost:3306)/test")
+	db, err := sql.Open("mysql", "root:User_123@tcp(localhost:3306)/test")
 	if err != nil {
 		t.Error(err)
 		return
@@ -57,6 +57,17 @@ func TestDbUsage(t *testing.T) {
 	fmt.Println(m.ID, m.Name, m.YearBirth)
 
 	objs, err := QueryAll(ctx, db, mapper, "select id, name, year_birth from member order by id asc")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	for _, obj = range objs {
+		m = obj.(*member)
+		fmt.Println(m.ID, m.Name, m.YearBirth)
+	}
+
+	objs, err = QueryAll(ctx, db, NewSmartMapper(&member{}), "select id, name, year_birth from member order by id asc")
 	if err != nil {
 		t.Error(err)
 		return
