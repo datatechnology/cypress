@@ -36,10 +36,17 @@ func (mapper *smartMapper) Map(row DataRow) (interface{}, error) {
 		return nil, err
 	}
 
-	if len(columnTypes) == 1 && reflect.TypeOf(mapper.value).Elem().Kind() != reflect.Struct {
-		value := reflect.New(reflect.TypeOf(mapper.value).Elem())
-		row.Scan(value.Interface())
-		return value.Interface(), nil
+	if len(columnTypes) == 1 {
+		t := reflect.TypeOf(mapper.value)
+		if t.Kind() == reflect.Ptr {
+			t = t.Elem()
+		}
+
+		if t.Kind() != reflect.Struct {
+			value := reflect.New(t)
+			row.Scan(value.Interface())
+			return value.Elem().Interface(), nil
+		}
 	}
 
 	valueType := reflect.TypeOf(mapper.value)

@@ -96,27 +96,25 @@ func TestDbUsage(t *testing.T) {
 		fmt.Println(m.ID, m.Name, m.YearBirth)
 	}
 
-	var val int64
-	obj, err = QueryOne(ctx, tx, NewSmartMapper(&val), "select max(id) from member")
+	obj, err = QueryOne(ctx, tx, NewSmartMapper(0), "select max(id) from member")
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	if lastID != *obj.(*int64) {
+	if int(lastID) != obj.(int) {
 		t.Error(lastID, obj, "are not matched")
 		return
 	}
 
-	var name string
-	objs, err = QueryAll(ctx, tx, NewSmartMapper(&name), "select name from member")
+	objs, err = QueryAll(ctx, tx, NewSmartMapper(""), "select name from member")
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
 	for _, obj = range objs {
-		s := obj.(*string)
-		fmt.Println(*s)
+		s := obj.(string)
+		fmt.Println(s)
 	}
 }
