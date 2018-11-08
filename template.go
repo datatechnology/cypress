@@ -37,6 +37,7 @@ type TemplateManager struct {
 	fileLock  *sync.RWMutex
 	files     map[string]*templateFileInfo
 	refresher *time.Ticker
+	exitChan  chan bool
 	funcs     template.FuncMap
 }
 
@@ -49,6 +50,7 @@ func NewTemplateManager(dir string, refreshInterval time.Duration) *TemplateMana
 		fileLock:  &sync.RWMutex{},
 		files:     make(map[string]*templateFileInfo),
 		refresher: time.NewTicker(refreshInterval),
+		exitChan:  make(chan bool),
 		funcs:     nil,
 	}
 
@@ -57,10 +59,20 @@ func NewTemplateManager(dir string, refreshInterval time.Duration) *TemplateMana
 			select {
 			case <-mgr.refresher.C:
 				mgr.refreshTemplates()
+				break
+			case <-mgr.exitChan:
+				return
 			}
 		}
 	}()
 	return mgr
+}
+
+// Close closes the template manager and release all resources
+func (manager *TemplateManager) Close() {
+	manager.exitChan <- true
+	manager.refresher.Stop()
+	close(manager.exitChan)
 }
 
 // Funcs add a funcMap to TemplateManager

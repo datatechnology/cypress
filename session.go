@@ -141,6 +141,10 @@ type SessionStore interface {
 	// if the session is still valid, otherwise, (nil, ErrSessionNotFound)
 	// will be returned
 	Get(id string) (*Session, error)
+
+	// Close closes the session store and release the resources that
+	// the session store owns
+	Close()
 }
 
 type sessionHandler struct {
@@ -166,7 +170,7 @@ func (handler *sessionHandler) ServeHTTP(writer http.ResponseWriter, request *ht
 			Name:   sessionIDCookieKey,
 			Value:  session.ID,
 			MaxAge: 60 * 60 * 24, // for one day
-			Path: 	"/",
+			Path:   "/",
 		}
 
 		http.SetCookie(writer, cookie)

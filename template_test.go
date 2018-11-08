@@ -62,6 +62,7 @@ func TestTemplateManager(t *testing.T) {
 	}
 
 	tmplMgr := NewTemplateManager(testDir, time.Second).Funcs(funcMap)
+	defer tmplMgr.Close()
 	tmpl, err := tmplMgr.GetOrCreateTemplate("index.tmpl", "header.tmpl")
 	if err != nil {
 		t.Error("failed to get index.tmpl template", err)

@@ -171,7 +171,7 @@ func LoggingHandler(handler http.Handler) http.Handler {
 			userProvider = userPrincipal.Provider
 		}
 
-		zap.L().Info(fmt.Sprintf("request %s served", newRequest.URL),
+		zap.L().Info("requestServed",
 			zap.String("type", "apiCall"),
 			zap.String("correlationId", correlationID),
 			zap.String("activityId", activityID),
