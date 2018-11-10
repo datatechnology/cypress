@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
+	"strings"
 	"time"
 
 	"github.com/gorilla/handlers"
@@ -14,6 +16,9 @@ import (
 var (
 	// ErrDupActionName mulitple actions are having the same name for the same controller
 	ErrDupActionName = errors.New("action name duplicated")
+
+	requestType  = reflect.TypeOf(http.Request{})
+	responseType = reflect.TypeOf(Response{})
 )
 
 // Response web response
@@ -71,6 +76,44 @@ type WebServer struct {
 	sessionTimeout     time.Duration
 	registeredHandlers map[string]map[string]ActionHandler
 	customHandler      CustomHandler
+}
+
+// AsController enumerates all accessible member functions of c
+// which has two parameters and *http.Request as the first one
+// while *Response as the second one as Actions
+func AsController(c interface{}) ControllerFunc {
+	return ControllerFunc(func() []Action {
+		t := reflect.TypeOf(c)
+		actions := make([]Action, 0, 8)
+		for i := 0; i < t.NumMethod(); i = i + 1 {
+			m := t.Method(i)
+			t := m.Func.Type()
+			if t.NumIn() != 3 {
+				continue
+			}
+
+			typeOfParam1 := t.In(1)
+			typeOfParam2 := t.In(2)
+			if typeOfParam1.Kind() != reflect.Ptr || typeOfParam2.Kind() != reflect.Ptr {
+				continue
+			}
+
+			typeOfParam1 = typeOfParam1.Elem()
+			typeOfParam2 = typeOfParam2.Elem()
+			if typeOfParam1.AssignableTo(requestType) &&
+				typeOfParam2.AssignableTo(responseType) {
+				actions = append(actions, Action{
+					Name: strings.ToLower(m.Name[0:1]) + m.Name[1:],
+					Handler: ActionHandler(func(request *http.Request, response *Response) {
+						args := []reflect.Value{reflect.ValueOf(c), reflect.ValueOf(request), reflect.ValueOf(response)}
+						m.Func.Call(args[:])
+					}),
+				})
+			}
+		}
+
+		return actions
+	})
 }
 
 // SetHeader sets a header value for response

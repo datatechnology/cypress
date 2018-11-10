@@ -14,6 +14,22 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+type TestController struct {
+}
+
+func (c *TestController) Action1(req *http.Request, resp *Response) {
+	resp.DoneWithContent(200, "text/plain", []byte("action1"))
+}
+
+func TestAutoController(t *testing.T) {
+	tc := &TestController{}
+	actions := AsController(tc)()
+	if len(actions) != 1 {
+		t.Error("expected one action in the list but got", len(actions))
+		return
+	}
+}
+
 type TestUserProvider struct{}
 
 func (p *TestUserProvider) GetName() string {
@@ -157,6 +173,7 @@ func TestWebServer(t *testing.T) {
 	server.WithStandardRouting("/web")
 	server.AddWsEndoint("/ws/echo", &TestWsListener{})
 	server.RegisterController("test", ControllerFunc(func() []Action { return testActions(t) }))
+	server.RegisterController("test1", AsController(&TestController{}))
 	server.WithCustomHandler(CustomHandlerFunc(printSessionID))
 
 	startedChan := make(chan bool)
@@ -236,12 +253,6 @@ func TestWebServer(t *testing.T) {
 
 	err = json.Unmarshal(writer.Buffer[1], &log2)
 
-	resp, err = http.Get("http://localhost:8099/web/test/index")
-	if err != nil {
-		t.Error("server is not started or working properly", err)
-		return
-	}
-
 	if err != nil {
 		t.Error("bad log item", err)
 		return
@@ -259,6 +270,36 @@ func TestWebServer(t *testing.T) {
 
 	if log1.TraceID != log2.TraceID {
 		t.Error(log1.TraceID, log2.TraceID, "expecting to be matched")
+		return
+	}
+
+	resp, err = http.Get("http://localhost:8099/web/test1/action1")
+	if err != nil {
+		t.Error("server is not started or working properly", err)
+		return
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		t.Error("Unexpected http status", resp.Status)
+		return
+	}
+
+	body, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		resp.Body.Close()
+		t.Error("failed to read body", err)
+		return
+	}
+
+	resp.Body.Close()
+	if "action1" != string(body) {
+		t.Error("unexpected response", string(body))
+		return
+	}
+
+	resp, err = http.Get("http://localhost:8099/web/test/index")
+	if err != nil {
+		t.Error("server is not started or working properly", err)
 		return
 	}
 
