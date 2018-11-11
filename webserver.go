@@ -3,6 +3,7 @@ package cypress
 import (
 	"encoding/json"
 	"errors"
+	"html/template"
 	"net/http"
 	"reflect"
 	"strings"
@@ -17,14 +18,49 @@ var (
 	// ErrDupActionName mulitple actions are having the same name for the same controller
 	ErrDupActionName = errors.New("action name duplicated")
 
+	// ServerName name of the app
+	ServerName = "cypress"
+
+	// ServerVersion version of the server
+	ServerVersion = "v0.1.1110"
+
 	requestType  = reflect.TypeOf(http.Request{})
 	responseType = reflect.TypeOf(Response{})
+
+	errorTemplate, _ = template.New("errorTemplate").Parse(`<!DOCTYPE html>
+	<html>
+		<head>
+			<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+			<meta name="viewport" content="width=device-width, initial-scale=1">
+			<title>{{.StatusCode}}-{{.Server}}({{.Version}})</title>
+			<style>
+			body {
+				font-size:12px;
+			}
+			</style>
+		</head>
+		<body>
+			<h1 style="text-align:center;">{{.StatusCode}}</h1>
+			<h2 style="text-align:center;">{{.Message}}</h2>
+			<div style="margin:20px 10% 0 10%;text-align:center;color:#999;border-top:solid 1px #c9c9c9;line-height:30px;">
+				Powered by {{.Server}} - {{.Version}}
+			</div>
+		</body>
+	</html>`)
 )
 
 // Response web response
 type Response struct {
+	traceID string
 	tmplMgr *TemplateManager
 	writer  http.ResponseWriter
+}
+
+type errorPage struct {
+	StatusCode int
+	Message    string
+	Server     string
+	Version    string
 }
 
 // ActionHandler action handler for standard routing
@@ -146,14 +182,20 @@ func (r *Response) DoneWithContent(statusCode int, contentType string, content [
 	r.Write(content)
 }
 
+// DoneWithError response an error page based on errorTemplate to the client
+func (r *Response) DoneWithError(statusCode int, msg string) {
+	r.SetStatus(statusCode)
+	r.SetHeader("Content-Type", "text/html;charset=utf8")
+	errorTemplate.Execute(r.writer, &errorPage{statusCode, msg, ServerName, ServerVersion})
+}
+
 // DoneWithTemplate sets the status and write the model with the given template name as
 // response, the content type is defaulted to text/html
 func (r *Response) DoneWithTemplate(statusCode int, model interface{}, tmplFiles ...string) {
 	tmpl, err := r.tmplMgr.GetOrCreateTemplate(tmplFiles...)
 	if err != nil {
-		zap.L().Error("failedToGetTemplate", zap.Error(err), zap.String("file", tmplFiles[0]))
-		r.SetStatus(http.StatusInternalServerError)
-		r.Write([]byte("<h1>Template not found</h1>"))
+		zap.L().Error("failedToGetTemplate", zap.Error(err), zap.String("file", tmplFiles[0]), zap.String("activityId", r.traceID))
+		r.DoneWithError(http.StatusInternalServerError, "Template not found")
 		return
 	}
 
@@ -169,7 +211,8 @@ func (r *Response) DoneWithJSON(statusCode int, obj interface{}) {
 	encoder := json.NewEncoder(r.writer)
 	err := encoder.Encode(obj)
 	if err != nil {
-		zap.L().Error("failedToEncodeJson", zap.Error(err))
+		zap.L().Error("failedToEncodeJson", zap.Error(err), zap.String("activityId", r.traceID))
+		r.Write([]byte(""))
 	}
 }
 
@@ -298,13 +341,14 @@ func (server *WebServer) routeRequest(writer http.ResponseWriter, request *http.
 			if ok {
 				tmplMgr, name := server.skinManager.ApplySelector(request)
 				if tmplMgr == nil {
-					zap.L().Error("skinNotFound", zap.String("skin", name))
-					r := &Response{nil, writer}
-					r.DoneWithContent(http.StatusInternalServerError, "text/plain", []byte("Invalid skin "+name))
+					zap.L().Error("skinNotFound", zap.String("skin", name), zap.String("activityId", GetTraceID(request.Context())))
+					r := &Response{GetTraceID(request.Context()), nil, writer}
+					r.DoneWithError(http.StatusInternalServerError, "Bad skin selected for the request")
 					return
 				}
 
 				response := &Response{
+					traceID: GetTraceID(request.Context()),
 					tmplMgr: tmplMgr,
 					writer:  writer,
 				}
@@ -314,6 +358,6 @@ func (server *WebServer) routeRequest(writer http.ResponseWriter, request *http.
 		}
 	}
 
-	writer.WriteHeader(http.StatusNotFound)
-	writer.Write([]byte("<h1>Not found</h1>"))
+	r := &Response{GetTraceID(request.Context()), nil, writer}
+	r.DoneWithError(http.StatusNotFound, "Sorry, we've tried really hard, but still cannot find anything for you.")
 }
