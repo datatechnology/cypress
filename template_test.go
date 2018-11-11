@@ -146,3 +146,133 @@ func TestTemplateManager(t *testing.T) {
 		return
 	}
 }
+
+func TestSkinManager(t *testing.T) {
+	// test setup
+	// create test folder
+	testDir1, err := ioutil.TempDir("", "cytpltest")
+	if err != nil {
+		t.Error("failed to create test dir", err)
+		return
+	}
+
+	defer os.RemoveAll(testDir1)
+
+	// write template files
+	err = ioutil.WriteFile(path.Join(testDir1, "header.tmpl"), []byte("defaultskin{{.}}"), os.ModePerm)
+	if err != nil {
+		t.Error("failed to setup header.tmpl")
+		return
+	}
+
+	err = ioutil.WriteFile(path.Join(testDir1, "index.tmpl"), []byte("{{template \"header.tmpl\" .Title}}{{.Message}}"), os.ModePerm)
+	if err != nil {
+		t.Error("failed to setup index.tmpl")
+		return
+	}
+
+	SetupLogger(LogLevelDebug, &DummyWriter{})
+
+	tmplMgr1 := NewTemplateManager(testDir1, time.Second)
+	defer tmplMgr1.Close()
+
+	// second skin
+	// create test folder
+	testDir2, err := ioutil.TempDir("", "cytpltest")
+	if err != nil {
+		t.Error("failed to create test dir", err)
+		return
+	}
+
+	defer os.RemoveAll(testDir2)
+
+	// write template files
+	err = ioutil.WriteFile(path.Join(testDir2, "header.tmpl"), []byte("skin1{{.}}"), os.ModePerm)
+	if err != nil {
+		t.Error("failed to setup header.tmpl")
+		return
+	}
+
+	err = ioutil.WriteFile(path.Join(testDir2, "index.tmpl"), []byte("{{template \"header.tmpl\" .Title}}{{.Message}}"), os.ModePerm)
+	if err != nil {
+		t.Error("failed to setup index.tmpl")
+		return
+	}
+
+	tmplMgr2 := NewTemplateManager(testDir2, time.Second)
+	defer tmplMgr2.Close()
+
+	skinMgr := NewSkinManager(tmplMgr1)
+	skinMgr.AddSkin("skin1", tmplMgr2)
+	tmpl, err := skinMgr.GetDefaultSkin().GetOrCreateTemplate("index.tmpl", "header.tmpl")
+	if err != nil {
+		t.Error("failed to get template", err)
+		return
+	}
+
+	resultWriter := NewBufferWriter()
+	model := &TestModel{"title", "message"}
+	tmpl.Execute(resultWriter, model)
+	result := readBuffer(resultWriter.Buffer)
+	if result != "defaultskintitlemessage" {
+		t.Error("expected defaultskintitlemessage but got", result)
+		return
+	}
+
+	tmpl, err = skinMgr.GetSkinOrDefault("skin1").GetOrCreateTemplate("index.tmpl", "header.tmpl")
+	if err != nil {
+		t.Error("failed to get template", err)
+		return
+	}
+
+	resultWriter = NewBufferWriter()
+	tmpl.Execute(resultWriter, model)
+	result = readBuffer(resultWriter.Buffer)
+
+	if result != "skin1titlemessage" {
+		t.Error("expected skin1titlemessage but got", result)
+		return
+	}
+
+	tmpl, err = skinMgr.GetSkinOrDefault("skin2").GetOrCreateTemplate("index.tmpl", "header.tmpl")
+	if err != nil {
+		t.Error("failed to get template", err)
+		return
+	}
+
+	resultWriter = NewBufferWriter()
+	tmpl.Execute(resultWriter, model)
+	result = readBuffer(resultWriter.Buffer)
+
+	if result != "defaultskintitlemessage" {
+		t.Error("expected defaultskintitlemessage but got", result)
+		return
+	}
+
+	m, ok := skinMgr.GetSkin("skin3")
+	if ok {
+		t.Error("unexpected skin3 in skin manager")
+		return
+	}
+
+	m, ok = skinMgr.GetSkin("skin1")
+	if !ok {
+		t.Error("unexpected result, skin1 must exist")
+		return
+	}
+
+	tmpl, err = m.GetOrCreateTemplate("index.tmpl", "header.tmpl")
+	if err != nil {
+		t.Error("failed to get template", err)
+		return
+	}
+
+	resultWriter = NewBufferWriter()
+	tmpl.Execute(resultWriter, model)
+	result = readBuffer(resultWriter.Buffer)
+
+	if result != "skin1titlemessage" {
+		t.Error("expected skin1titlemessage but got", result)
+		return
+	}
+}

@@ -162,7 +162,7 @@ func TestWebServer(t *testing.T) {
 		},
 	})
 	defer tmplMgr.Close()
-	server := NewWebServer(":8099", tmplMgr)
+	server := NewWebServer(":8099", NewSkinManager(tmplMgr))
 	defer server.Shutdown()
 
 	sessionStore := NewInMemorySessionStore()

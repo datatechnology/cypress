@@ -71,7 +71,7 @@ type WebServer struct {
 	server             *http.Server
 	router             *mux.Router
 	securityHandler    *SecurityHandler
-	templateManager    *TemplateManager
+	skinManager        *SkinManager
 	sessionStore       SessionStore
 	sessionTimeout     time.Duration
 	registeredHandlers map[string]map[string]ActionHandler
@@ -175,14 +175,14 @@ func (r *Response) DoneWithJSON(statusCode int, obj interface{}) {
 
 // NewWebServer creates a web server instance to listen on the
 // specified address
-func NewWebServer(listenAddr string, tmplMgr *TemplateManager) *WebServer {
+func NewWebServer(listenAddr string, skinMgr *SkinManager) *WebServer {
 	return &WebServer{
 		server: &http.Server{
 			Addr: listenAddr,
 		},
 		router:             mux.NewRouter(),
 		securityHandler:    NewSecurityHandler(),
-		templateManager:    tmplMgr,
+		skinManager:        skinMgr,
 		sessionTimeout:     time.Minute * 30,
 		registeredHandlers: make(map[string]map[string]ActionHandler),
 		customHandler:      nil,
@@ -296,8 +296,16 @@ func (server *WebServer) routeRequest(writer http.ResponseWriter, request *http.
 		if ok {
 			handler, ok := actions[routeVars["action"]]
 			if ok {
+				tmplMgr, name := server.skinManager.ApplySelector(request)
+				if tmplMgr == nil {
+					zap.L().Error("skinNotFound", zap.String("skin", name))
+					r := &Response{nil, writer}
+					r.DoneWithContent(http.StatusInternalServerError, "text/plain", []byte("Invalid skin "+name))
+					return
+				}
+
 				response := &Response{
-					tmplMgr: server.templateManager,
+					tmplMgr: tmplMgr,
 					writer:  writer,
 				}
 				handler(request, response)

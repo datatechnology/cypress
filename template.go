@@ -3,6 +3,7 @@ package cypress
 import (
 	"errors"
 	"html/template"
+	"net/http"
 	"os"
 	"path"
 	"sync"
@@ -14,6 +15,9 @@ import (
 var (
 	//ErrNoFile no file given for Creating a template
 	ErrNoFile = errors.New("No template file")
+
+	//SkinDefault default skin name
+	SkinDefault = "default"
 )
 
 type templateInfo struct {
@@ -39,6 +43,23 @@ type TemplateManager struct {
 	refresher *time.Ticker
 	exitChan  chan bool
 	funcs     template.FuncMap
+}
+
+// SkinSelector returns a skin name based on the request object
+type SkinSelector interface {
+	GetSkin(request *http.Request) string
+}
+
+// SkinSelectorFunc converts a function to SkinSelector interface
+type SkinSelectorFunc func(*http.Request) string
+
+// SkinManager a TemplateManager is mapped to a skin, skin manager manages TemplateManagers
+// by names.
+type SkinManager struct {
+	defaultSkin *TemplateManager
+	skins       map[string]*TemplateManager
+	lock        *sync.RWMutex
+	selector    SkinSelector
 }
 
 // NewTemplateManager creates a template manager for the given dir
@@ -137,11 +158,11 @@ func (manager *TemplateManager) GetOrCreateTemplate(files ...string) (*template.
 		}
 
 		fileInfo.lock.Lock()
-		defer fileInfo.lock.Unlock()
 		fileInfo.references = append(fileInfo.references, &templateInfo{
 			files: resolvedFiles,
 			tmpl:  tmpl,
 		})
+		fileInfo.lock.Unlock()
 	}
 
 	return tmpl, nil
@@ -197,4 +218,73 @@ func (manager *TemplateManager) refreshTemplates() {
 			}
 		}
 	}
+}
+
+// NewSkinManager creates a skin manager object
+func NewSkinManager(defaultSkin *TemplateManager) *SkinManager {
+	return &SkinManager{defaultSkin, make(map[string]*TemplateManager), &sync.RWMutex{}, nil}
+}
+
+// AddSkin adds a skin
+func (skinMgr *SkinManager) AddSkin(name string, tmplMgr *TemplateManager) {
+	skinMgr.lock.Lock()
+	defer skinMgr.lock.Unlock()
+	skinMgr.skins[name] = tmplMgr
+}
+
+// RemoveSkin removes a skin
+func (skinMgr *SkinManager) RemoveSkin(name string) {
+	skinMgr.lock.Lock()
+	defer skinMgr.lock.Unlock()
+	delete(skinMgr.skins, name)
+}
+
+// GetDefaultSkin gets the default skin
+func (skinMgr *SkinManager) GetDefaultSkin() *TemplateManager {
+	skinMgr.lock.RLock()
+	defer skinMgr.lock.RUnlock()
+	return skinMgr.defaultSkin
+}
+
+// GetSkinOrDefault gets the skin with the given name if it's not
+// found return the default skin
+func (skinMgr *SkinManager) GetSkinOrDefault(name string) *TemplateManager {
+	skinMgr.lock.RLock()
+	defer skinMgr.lock.RUnlock()
+	tmplMgr, ok := skinMgr.skins[name]
+	if !ok {
+		return skinMgr.defaultSkin
+	}
+
+	return tmplMgr
+}
+
+// GetSkin find skin by name
+func (skinMgr *SkinManager) GetSkin(name string) (*TemplateManager, bool) {
+	skinMgr.lock.RLock()
+	defer skinMgr.lock.RUnlock()
+	tmplMgr, ok := skinMgr.skins[name]
+	return tmplMgr, ok
+}
+
+// ApplySelector find skin by applying selector, if selector is not configured
+// default skin will be returned, if the skin name returned by the selector cannot
+// be found, this returns nil
+func (skinMgr *SkinManager) ApplySelector(request *http.Request) (*TemplateManager, string) {
+	if skinMgr.selector == nil {
+		return skinMgr.GetDefaultSkin(), SkinDefault
+	}
+
+	skinMgr.lock.RLock()
+	defer skinMgr.lock.RUnlock()
+	name := skinMgr.selector.GetSkin(request)
+	skin, _ := skinMgr.GetSkin(name)
+	return skin, name
+}
+
+// WithSelector sets the skin selector for the skin manager
+func (skinMgr *SkinManager) WithSelector(selector SkinSelector) {
+	skinMgr.lock.Lock()
+	defer skinMgr.lock.Unlock()
+	skinMgr.selector = selector
 }
