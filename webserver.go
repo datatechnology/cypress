@@ -114,6 +114,13 @@ type WebServer struct {
 	customHandler      CustomHandler
 }
 
+// SendError complete the request by sending an error message to the client
+func SendError(writer http.ResponseWriter, statusCode int, errorMsg string) {
+	writer.Header().Add("Content-Type", "text/html; charset=UTF-8")
+	writer.WriteHeader(statusCode)
+	errorTemplate.Execute(writer, &errorPage{statusCode, errorMsg, ServerName, ServerVersion})
+}
+
 // AsController enumerates all accessible member functions of c
 // which has two parameters and *http.Request as the first one
 // while *Response as the second one as Actions
@@ -185,7 +192,7 @@ func (r *Response) DoneWithContent(statusCode int, contentType string, content [
 // DoneWithError response an error page based on errorTemplate to the client
 func (r *Response) DoneWithError(statusCode int, msg string) {
 	r.SetStatus(statusCode)
-	r.SetHeader("Content-Type", "text/html;charset=utf8")
+	r.SetHeader("Content-Type", "text/html; charset=utf8")
 	errorTemplate.Execute(r.writer, &errorPage{statusCode, msg, ServerName, ServerVersion})
 }
 
@@ -342,8 +349,7 @@ func (server *WebServer) routeRequest(writer http.ResponseWriter, request *http.
 				tmplMgr, name := server.skinManager.ApplySelector(request)
 				if tmplMgr == nil {
 					zap.L().Error("skinNotFound", zap.String("skin", name), zap.String("activityId", GetTraceID(request.Context())))
-					r := &Response{GetTraceID(request.Context()), nil, writer}
-					r.DoneWithError(http.StatusInternalServerError, "Bad skin selected for the request")
+					SendError(writer, http.StatusInternalServerError, "Bad skin selected for the request")
 					return
 				}
 
@@ -358,6 +364,5 @@ func (server *WebServer) routeRequest(writer http.ResponseWriter, request *http.
 		}
 	}
 
-	r := &Response{GetTraceID(request.Context()), nil, writer}
-	r.DoneWithError(http.StatusNotFound, "Sorry, we've tried really hard, but still cannot find anything for you.")
+	SendError(writer, http.StatusNotFound, "Sorry, we've tried really hard, but still cannot find anything for you.")
 }

@@ -127,9 +127,12 @@ func LoggingHandler(handler http.Handler) http.Handler {
 					zap.String("requestUri", request.URL.String()),
 					zap.String("path", request.URL.Path),
 					zap.String("requestMethod", request.Method),
-					zap.Stack("source"))
-				writer.WriteHeader(http.StatusInternalServerError)
-				writer.Write([]byte("<h1>Unknown error, please contact administrator</h1>"))
+					zap.Stack("source"),
+					zap.String("activityId", GetTraceID(request.Context())))
+
+				// It's very risky to continue as there could be some locks or resources
+				// were not release because of a panic, so we will just rethrow the panic
+				panic(err)
 			}
 		}()
 
