@@ -297,6 +297,19 @@ func TestWebServer(t *testing.T) {
 		return
 	}
 
+	resp, err = http.Get("http://localhost:8099/web/test1/action2")
+	if err != nil {
+		t.Error("server is not started or working properly", err)
+		return
+	}
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Error("Unexpected http status", resp.Status)
+		return
+	}
+
+	resp.Body.Close()
+
 	resp, err = http.Get("http://localhost:8099/web/test/index")
 	if err != nil {
 		t.Error("server is not started or working properly", err)
