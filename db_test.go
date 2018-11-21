@@ -124,8 +124,8 @@ func TestDbUsage(t *testing.T) {
 		return
 	}
 
-	// test smart mapper
-	objs, err = QueryAll(ctx, db, NewSmartMapper(&member{}), "select id, name, year_birth from member order by id asc")
+	// test smart mapper with additional column
+	objs, err = QueryAll(ctx, db, NewSmartMapper(&member{}), "select id, name, year_birth, 'test' as bad_column from member order by id asc")
 	if err != nil {
 		t.Error(err)
 		return

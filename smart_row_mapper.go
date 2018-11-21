@@ -26,7 +26,7 @@ type nameMappingCache struct {
 }
 
 type smartMapper struct {
-	value interface{}
+	valueType reflect.Type
 }
 
 func newNameMappingCache() *nameMappingCache {
@@ -68,7 +68,7 @@ func (c *nameMappingCache) put(typeName, columnName, fieldName string) {
 
 // NewSmartMapper creates a smart row mapper for data row
 func NewSmartMapper(value interface{}) RowMapper {
-	return &smartMapper{value}
+	return &smartMapper{reflect.TypeOf(value)}
 }
 
 // Map maps the data row to a value object
@@ -84,7 +84,7 @@ func (mapper *smartMapper) Map(row DataRow) (interface{}, error) {
 	}
 
 	if len(columnTypes) == 1 {
-		t := reflect.TypeOf(mapper.value)
+		t := mapper.valueType
 		if t.Kind() == reflect.Ptr {
 			t = t.Elem()
 		}
@@ -96,7 +96,7 @@ func (mapper *smartMapper) Map(row DataRow) (interface{}, error) {
 		}
 	}
 
-	valueType := reflect.TypeOf(mapper.value)
+	valueType := mapper.valueType
 	if valueType.Kind() != reflect.Ptr {
 		return nil, ErrPointerRequired
 	}
@@ -128,17 +128,22 @@ func (mapper *smartMapper) Map(row DataRow) (interface{}, error) {
 		}
 
 		if fieldName == "" {
-			return nil, ErrUnknownColumn
-		}
-
-		fieldValue := value.Elem().FieldByName(fieldName)
-		if fieldValue.Type().Kind() == reflect.Ptr {
-			values[index] = fieldValue.Interface()
+			// Skip the value if we cannot find a field to hold it
+			values[index] = &values[index]
 		} else {
-			values[index] = fieldValue.Addr().Interface()
+			fieldValue := value.Elem().FieldByName(fieldName)
+			if fieldValue.Type().Kind() == reflect.Ptr {
+				values[index] = fieldValue.Interface()
+			} else {
+				values[index] = fieldValue.Addr().Interface()
+			}
 		}
 	}
 
 	row.Scan(values...)
 	return value.Interface(), nil
+}
+
+func (mapper *smartMapper) getValueHolder(col string, value reflect.Value) interface{} {
+	return nil
 }
