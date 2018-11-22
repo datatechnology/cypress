@@ -66,7 +66,3 @@ func (mapper *smartMapper) Map(row DataRow) (interface{}, error) {
 	row.Scan(values...)
 	return value.Interface(), nil
 }
-
-func (mapper *smartMapper) getValueHolder(col string, value reflect.Value) interface{} {
-	return nil
-}
