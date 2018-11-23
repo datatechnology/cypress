@@ -42,9 +42,12 @@ func (getter *FieldValueGetter) Get(value reflect.Value) reflect.Value {
 
 	fieldValue := thisValue.FieldByName(getter.name)
 	if fieldValue.Type().Kind() == reflect.Ptr {
-		fieldObject := reflect.New(fieldValue.Type().Elem())
-		fieldValue.Set(fieldObject)
-		return fieldObject.Elem()
+		if fieldValue.IsNil() {
+			fieldObject := reflect.New(fieldValue.Type().Elem())
+			fieldValue.Set(fieldObject)
+		}
+
+		return fieldValue.Elem()
 	}
 
 	return fieldValue
