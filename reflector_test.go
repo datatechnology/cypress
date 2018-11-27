@@ -8,6 +8,7 @@ import (
 type innerStruct struct {
 	Value  float64 `col:"fvalue"`
 	Value2 string  `alias:"svalue"`
+	Root   *testStruct
 }
 
 type dumpStruct struct {
