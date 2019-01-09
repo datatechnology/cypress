@@ -85,16 +85,18 @@ func (store *inMemorySessionStore) Get(id string) (*Session, error) {
 }
 
 func (store *inMemorySessionStore) doGC() {
-	store.lock.RLock()
-	now := time.Now()
 	keysToRemove := make([]string, 0)
-	for key, value := range store.sessions {
-		if value.expiration.Before(now) {
-			keysToRemove = append(keysToRemove, key)
+	func() {
+		store.lock.RLock()
+		defer store.lock.RUnlock()
+		now := time.Now()
+		for key, value := range store.sessions {
+			if value.expiration.Before(now) {
+				keysToRemove = append(keysToRemove, key)
+			}
 		}
-	}
+	}()
 
-	store.lock.RUnlock()
 	store.lock.Lock()
 	defer store.lock.Unlock()
 	for _, key := range keysToRemove {

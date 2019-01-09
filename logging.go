@@ -123,16 +123,14 @@ func LoggingHandler(handler http.Handler) http.Handler {
 		defer func() {
 			if err := recover(); err != nil {
 				defer zap.L().Sync()
+				// Log and continue, the user code has to ensure all locks will be unlocked
+				// in case of panic
 				zap.L().Error(fmt.Sprint(err),
 					zap.String("requestUri", request.URL.String()),
 					zap.String("path", request.URL.Path),
 					zap.String("requestMethod", request.Method),
 					zap.Stack("source"),
 					zap.String("activityId", GetTraceID(request.Context())))
-
-				// It's very risky to continue as there could be some locks or resources
-				// were not release because of a panic, so we will just rethrow the panic
-				panic(err)
 			}
 		}()
 

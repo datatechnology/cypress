@@ -57,9 +57,13 @@ func (getter *FieldValueGetter) Get(value reflect.Value) reflect.Value {
 // give type t
 func GetFieldValueGetters(t reflect.Type) map[string]*FieldValueGetter {
 	typeName := t.PkgPath() + "/" + t.Name()
-	globalGettersCache.lock.RLock()
-	cache, ok := globalGettersCache.cache[typeName]
-	globalGettersCache.lock.RUnlock()
+	var cache map[string]*FieldValueGetter
+	var ok bool
+	func() {
+		globalGettersCache.lock.RLock()
+		defer globalGettersCache.lock.RUnlock()
+		cache, ok = globalGettersCache.cache[typeName]
+	}()
 	if ok {
 		return cache
 	}
