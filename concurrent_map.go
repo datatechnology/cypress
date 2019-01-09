@@ -83,9 +83,14 @@ func (m *ConcurrentMap) Get(key string) (interface{}, bool) {
 // GetOrCompute gets a value from map if it does not exist
 // compute the value from the given generator
 func (m *ConcurrentMap) GetOrCompute(key string, generator func() interface{}) interface{} {
-	m.lock.RLock()
-	value, ok := m.values[key]
-	m.lock.RUnlock()
+	var value interface{}
+	var ok bool
+	func() {
+		m.lock.RLock()
+		defer m.lock.RUnlock()
+		value, ok = m.values[key]
+	}()
+
 	if ok {
 		return value
 	}

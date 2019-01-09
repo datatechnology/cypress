@@ -109,10 +109,15 @@ func (manager *TemplateManager) GetOrCreateTemplate(files ...string) (*template.
 		return nil, ErrNoFile
 	}
 
+	var tmpl *template.Template
+	var ok bool
 	name := path.Base(files[0])
-	manager.lock.RLock()
-	tmpl, ok := manager.templates[name]
-	manager.lock.RUnlock()
+	func() {
+		manager.lock.RLock()
+		defer manager.lock.RUnlock()
+		tmpl, ok = manager.templates[name]
+	}()
+
 	if ok {
 		zap.L().Debug("templateCacheHit", zap.String("name", name))
 		return tmpl, nil
@@ -129,14 +134,19 @@ func (manager *TemplateManager) GetOrCreateTemplate(files ...string) (*template.
 		return nil, err
 	}
 
-	manager.lock.Lock()
-	manager.templates[name] = tmpl
-	manager.lock.Unlock()
+	func() {
+		manager.lock.Lock()
+		defer manager.lock.Unlock()
+		manager.templates[name] = tmpl
+	}()
 
 	for _, resolvedFile := range resolvedFiles {
-		manager.fileLock.RLock()
-		fileInfo, ok := manager.files[resolvedFile]
-		manager.fileLock.RUnlock()
+		var fileInfo *templateFileInfo
+		func() {
+			manager.fileLock.RLock()
+			defer manager.fileLock.RUnlock()
+			fileInfo, ok = manager.files[resolvedFile]
+		}()
 
 		if !ok {
 			stat, err := os.Stat(resolvedFile)
@@ -152,41 +162,50 @@ func (manager *TemplateManager) GetOrCreateTemplate(files ...string) (*template.
 				lock:        &sync.RWMutex{},
 			}
 
-			manager.fileLock.Lock()
-			manager.files[resolvedFile] = fileInfo
-			manager.fileLock.Unlock()
+			func() {
+				manager.fileLock.Lock()
+				defer manager.fileLock.Unlock()
+				manager.files[resolvedFile] = fileInfo
+			}()
 		}
 
-		fileInfo.lock.Lock()
-		fileInfo.references = append(fileInfo.references, &templateInfo{
-			files: resolvedFiles,
-			tmpl:  tmpl,
-		})
-		fileInfo.lock.Unlock()
+		func() {
+			fileInfo.lock.Lock()
+			defer fileInfo.lock.Unlock()
+			fileInfo.references = append(fileInfo.references, &templateInfo{
+				files: resolvedFiles,
+				tmpl:  tmpl,
+			})
+		}()
 	}
 
 	return tmpl, nil
 }
 
 func (manager *TemplateManager) refreshTemplates() {
-	manager.fileLock.RLock()
 	files := make([]string, 0, len(manager.files))
-	for key := range manager.files {
-		files = append(files, key)
-	}
-
-	manager.fileLock.RUnlock()
+	func() {
+		manager.fileLock.RLock()
+		defer manager.fileLock.RUnlock()
+		for key := range manager.files {
+			files = append(files, key)
+		}
+	}()
 
 	for _, file := range files {
+		var fileInfo *templateFileInfo
+		var ok bool
 		stat, err := os.Stat(file)
 		if err != nil {
 			zap.L().Error("unexpectedTmplRefreshError", zap.Error(err))
 			continue
 		}
 
-		manager.fileLock.RLock()
-		fileInfo, ok := manager.files[file]
-		manager.fileLock.RUnlock()
+		func() {
+			manager.fileLock.RLock()
+			defer manager.fileLock.RUnlock()
+			fileInfo, ok = manager.files[file]
+		}()
 
 		if !ok {
 			zap.L().Error("fileInfoBlockNotFound", zap.String("file", file))
@@ -195,10 +214,13 @@ func (manager *TemplateManager) refreshTemplates() {
 
 		if fileInfo.lastModifed.Before(stat.ModTime()) {
 			// reduce the lock time, we sacrifies the memory
-			fileInfo.lock.RLock()
-			refs := make([]*templateInfo, len(fileInfo.references))
-			copy(refs, fileInfo.references)
-			fileInfo.lock.RUnlock()
+			var refs []*templateInfo
+			func() {
+				fileInfo.lock.RLock()
+				defer fileInfo.lock.RUnlock()
+				refs = make([]*templateInfo, len(fileInfo.references))
+				copy(refs, fileInfo.references)
+			}()
 
 			for _, ref := range refs {
 				tmplName := path.Base(ref.files[0])
@@ -209,9 +231,11 @@ func (manager *TemplateManager) refreshTemplates() {
 					continue
 				}
 
-				manager.lock.Lock()
-				manager.templates[tmplName] = tmpl
-				manager.lock.Unlock()
+				func() {
+					manager.lock.Lock()
+					defer manager.lock.Unlock()
+					manager.templates[tmplName] = tmpl
+				}()
 
 				fileInfo.lastModifed = stat.ModTime()
 				zap.L().Info("templateRefreshed", zap.String("template", tmplName), zap.String("file", file))
