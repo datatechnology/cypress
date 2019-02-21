@@ -124,7 +124,16 @@ func printSessionID(handler http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		traceID := GetTraceID(request.Context())
 		session := GetSession(request)
-		fmt.Println(traceID, session.ID)
+		fmt.Println("printSessionID:", traceID, session.ID)
+		handler.ServeHTTP(writer, request)
+	})
+}
+
+func printSessionIDEx(handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		traceID := GetTraceID(request.Context())
+		session := GetSession(request)
+		fmt.Println("printSessionIDEx:", traceID, session.ID)
 		handler.ServeHTTP(writer, request)
 	})
 }
@@ -175,6 +184,7 @@ func TestWebServer(t *testing.T) {
 	server.RegisterController("test", ControllerFunc(func() []Action { return testActions(t) }))
 	server.RegisterController("test1", AsController(&TestController{}))
 	server.WithCustomHandler(CustomHandlerFunc(printSessionID))
+	server.WithCustomHandler(CustomHandlerFunc(printSessionIDEx))
 
 	startedChan := make(chan bool)
 	go func() {

@@ -143,8 +143,8 @@ func AsController(c interface{}) ControllerFunc {
 
 			typeOfParam1 = typeOfParam1.Elem()
 			typeOfParam2 = typeOfParam2.Elem()
-			if typeOfParam1.AssignableTo(requestType) &&
-				typeOfParam2.AssignableTo(responseType) {
+			if requestType.AssignableTo(typeOfParam1) &&
+				responseType.AssignableTo(typeOfParam2) {
 				actions = append(actions, Action{
 					Name: strings.ToLower(m.Name[0:1]) + m.Name[1:],
 					Handler: ActionHandler(func(request *http.Request, response *Response) {
@@ -290,9 +290,19 @@ func (server *WebServer) WithLoginURL(loginURL string) *WebServer {
 	return server
 }
 
-//WithCustomHandler add a handler implement CustomHandler
+//WithCustomHandler set or chains a handler to custom handlers chain, the new
+// CustomHandler will be added to the tail of custom handlers chain.
 func (server *WebServer) WithCustomHandler(handler CustomHandler) *WebServer {
-	server.customHandler = handler
+	if server.customHandler == nil {
+		server.customHandler = handler
+	} else {
+		existingHandler := server.customHandler
+		server.customHandler = CustomHandlerFunc(func(h http.Handler) http.Handler {
+			newHandler := handler.PipelineWith(h)
+			return existingHandler.PipelineWith(newHandler)
+		})
+	}
+
 	return server
 }
 
