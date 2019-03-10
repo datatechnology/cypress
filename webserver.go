@@ -24,6 +24,9 @@ var (
 	// ServerVersion version of the server
 	ServerVersion = "v0.1.1110"
 
+	// NotFoundMsg message to be shown when resource not found
+	NotFoundMsg = "Sorry, we are not able to find the resource you requested"
+
 	requestType  = reflect.TypeOf(http.Request{})
 	responseType = reflect.TypeOf(Response{})
 
@@ -336,6 +339,9 @@ func (server *WebServer) Shutdown() {
 
 // Start starts the web server
 func (server *WebServer) Start() error {
+	server.router.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		SendError(w, 404, NotFoundMsg)
+	})
 	handler := http.Handler(server.securityHandler.WithPipeline(server.router))
 	if server.customHandler != nil {
 		handler = server.customHandler.PipelineWith(handler)
@@ -374,5 +380,5 @@ func (server *WebServer) routeRequest(writer http.ResponseWriter, request *http.
 		}
 	}
 
-	SendError(writer, http.StatusNotFound, "Sorry, we've tried really hard, but still cannot find anything for you.")
+	SendError(writer, http.StatusNotFound, NotFoundMsg)
 }
