@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dchest/captcha"
+
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"go.uber.org/zap"
@@ -115,6 +117,9 @@ type WebServer struct {
 	sessionTimeout     time.Duration
 	registeredHandlers map[string]map[string]ActionHandler
 	customHandler      CustomHandler
+	captchaDigits      int
+	captchaWidth       int
+	captchaHeight      int
 }
 
 // SendError complete the request by sending an error message to the client
@@ -239,6 +244,9 @@ func NewWebServer(listenAddr string, skinMgr *SkinManager) *WebServer {
 		sessionTimeout:     time.Minute * 30,
 		registeredHandlers: make(map[string]map[string]ActionHandler),
 		customHandler:      nil,
+		captchaDigits:      6,
+		captchaWidth:       captcha.StdWidth,
+		captchaHeight:      captcha.StdHeight,
 	}
 }
 
@@ -252,6 +260,21 @@ func (server *WebServer) HandleFunc(path string, f func(w http.ResponseWriter, r
 // and the web server will route the requests based on the registered controllers.
 func (server *WebServer) WithStandardRouting(prefix string) *WebServer {
 	server.router.HandleFunc(prefix+"/{controller:[_a-zA-Z][_a-zA-Z0-9]*}/{action:[_a-zA-Z][_a-zA-Z0-9]*}", server.routeRequest)
+	return server
+}
+
+// WithCaptchaCustom setup a captcha generator at the given path with custom digits, width and height
+func (server *WebServer) WithCaptchaCustom(path string, digits, width, height int) *WebServer {
+	server.captchaDigits = digits
+	server.captchaWidth = width
+	server.captchaHeight = height
+	server.router.HandleFunc(path, server.createCaptcha)
+	return server
+}
+
+// WithCaptcha setup a captcha generator at the given "path" in a 240 x 80 image with six digits chanllege
+func (server *WebServer) WithCaptcha(path string) *WebServer {
+	server.router.HandleFunc(path, server.createCaptcha)
 	return server
 }
 
@@ -381,4 +404,57 @@ func (server *WebServer) routeRequest(writer http.ResponseWriter, request *http.
 	}
 
 	SendError(writer, http.StatusNotFound, NotFoundMsg)
+}
+
+func (server *WebServer) createCaptcha(writer http.ResponseWriter, request *http.Request) {
+	var session *Session
+	customSession := false
+	sessid := request.FormValue("sessid")
+	if sessid != "" {
+		session, err := server.sessionStore.Get(sessid)
+		if err != nil && err != ErrSessionNotFound {
+			zap.L().Error("failed to lookup session store", zap.Error(err))
+			SendError(writer, http.StatusInternalServerError, "unknown error")
+			return
+		}
+
+		if session == nil {
+			session = NewSession(sessid)
+		}
+
+		customSession = true
+	}
+
+	if session == nil {
+		session = GetSession(request)
+	}
+
+	if session == nil {
+		SendError(writer, http.StatusServiceUnavailable, "session is required for handling captcha")
+		return
+	}
+
+	digits := captcha.RandomDigits(server.captchaDigits)
+	session.SetValue("captcha", digits)
+
+	image := captcha.NewImage(session.ID, digits, server.captchaWidth, server.captchaHeight)
+	if image == nil {
+		SendError(writer, http.StatusInternalServerError, "failed to generate captcha image")
+		return
+	}
+
+	if customSession {
+		err := server.sessionStore.Save(session, time.Minute*5)
+		if err != nil {
+			zap.L().Error("failed to save session", zap.Error(err))
+			SendError(writer, http.StatusInternalServerError, "unknown server error")
+			return
+		}
+	}
+
+	writer.Header().Add("Expires", "Sat, 6 May 1995 12:00:00 GMT")
+	writer.Header().Add("Cache-Control", "no-store, no-cache, must-revalidate")
+	writer.Header().Add("Pragma", "no-cache")
+	writer.Header().Add("Content-Type", "image/png")
+	image.WriteTo(writer)
 }

@@ -180,6 +180,7 @@ func TestWebServer(t *testing.T) {
 	server.AddUserProvider(&TestUserProvider{})
 	server.WithSessionOptions(sessionStore, 15*time.Minute)
 	server.WithStandardRouting("/web")
+	server.WithCaptcha("/captcha")
 	server.AddWsEndoint("/ws/echo", &TestWsListener{})
 	server.RegisterController("test", ControllerFunc(func() []Action { return testActions(t) }))
 	server.RegisterController("test1", AsController(&TestController{}))
@@ -342,6 +343,32 @@ func TestWebServer(t *testing.T) {
 		t.Error("unexpected response body", string(body))
 		return
 	}
+
+	resp, err = http.Get("http://localhost:8099/captcha?sessid=abc123")
+	if err != nil {
+		t.Error("server is not started or working properly", err)
+		return
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		t.Error("Unexpected http status", resp.Status)
+		return
+	}
+
+	defer resp.Body.Close()
+
+	resp, err = http.Get("http://localhost:8099/captcha")
+	if err != nil {
+		t.Error("server is not started or working properly", err)
+		return
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		t.Error("Unexpected http status", resp.Status)
+		return
+	}
+
+	defer resp.Body.Close()
 
 	// try websocket
 	c, _, err := websocket.DefaultDialer.Dial("ws://localhost:8099/ws/echo", nil)
