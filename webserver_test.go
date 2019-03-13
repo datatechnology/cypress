@@ -355,6 +355,10 @@ func TestWebServer(t *testing.T) {
 		return
 	}
 
+	sess, _ := sessionStore.Get("abc123")
+	val, _ := sess.GetValue("captcha")
+	fmt.Println("challenge", val.([]byte))
+
 	defer resp.Body.Close()
 
 	resp, err = http.Get("http://localhost:8099/captcha")

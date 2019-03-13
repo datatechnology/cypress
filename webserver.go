@@ -408,10 +408,11 @@ func (server *WebServer) routeRequest(writer http.ResponseWriter, request *http.
 
 func (server *WebServer) createCaptcha(writer http.ResponseWriter, request *http.Request) {
 	var session *Session
+	var err error
 	customSession := false
 	sessid := request.FormValue("sessid")
 	if sessid != "" {
-		session, err := server.sessionStore.Get(sessid)
+		session, err = server.sessionStore.Get(sessid)
 		if err != nil && err != ErrSessionNotFound {
 			zap.L().Error("failed to lookup session store", zap.Error(err))
 			SendError(writer, http.StatusInternalServerError, "unknown error")
