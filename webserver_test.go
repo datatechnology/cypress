@@ -164,11 +164,13 @@ func TestWebServer(t *testing.T) {
 
 	writer := NewBufferWriter()
 	SetupLogger(LogLevelDebug, writer)
-	tmplMgr := NewTemplateManager(testDir, ".tmpl", template.FuncMap{
-		"add": func(a, b int) int {
-			return a + b
-		},
-	}, time.Second*10)
+	tmplMgr := NewTemplateManager(testDir, ".tmpl", time.Second*10, func(root *template.Template) {
+		root.Funcs(template.FuncMap{
+			"add": func(a, b int) int {
+				return a + b
+			},
+		})
+	})
 	defer tmplMgr.Close()
 	server := NewWebServer(":8099", NewSkinManager(tmplMgr))
 	defer server.Shutdown()

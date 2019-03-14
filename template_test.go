@@ -60,7 +60,9 @@ func TestTemplateManager(t *testing.T) {
 		"add": func(a, b int32) int32 { return a + b },
 	}
 
-	tmplMgr := NewTemplateManager(testDir, ".tmpl", funcMap, time.Second)
+	tmplMgr := NewTemplateManager(testDir, ".tmpl", time.Second, func(root *template.Template) {
+		root.Funcs(funcMap)
+	})
 	defer tmplMgr.Close()
 	resultWriter := NewBufferWriter()
 	model := &TestModel{"title", "message"}
@@ -140,7 +142,7 @@ func TestSkinManager(t *testing.T) {
 
 	SetupLogger(LogLevelDebug, &DummyWriter{})
 
-	tmplMgr1 := NewTemplateManager(testDir1, ".tmpl", nil, time.Second)
+	tmplMgr1 := NewTemplateManager(testDir1, ".tmpl", time.Second, nil)
 	defer tmplMgr1.Close()
 
 	// second skin
@@ -166,7 +168,7 @@ func TestSkinManager(t *testing.T) {
 		return
 	}
 
-	tmplMgr2 := NewTemplateManager(testDir2, ".tmpl", nil, time.Second)
+	tmplMgr2 := NewTemplateManager(testDir2, ".tmpl", time.Second, nil)
 	defer tmplMgr2.Close()
 
 	skinMgr := NewSkinManager(tmplMgr1)

@@ -27,16 +27,19 @@ type templateFileInfo struct {
 	lastModifed time.Time
 }
 
+// TemplateConfigFunc template config function
+type TemplateConfigFunc func(*template.Template)
+
 // TemplateManager manages the templates by groups and update template group on-demand
 // based on the template file update timestamp
 type TemplateManager struct {
-	lock      *sync.RWMutex
-	root      *template.Template
-	fileLock  *sync.RWMutex
-	files     map[string]time.Time
-	refresher *time.Ticker
-	exitChan  chan bool
-	funcs     template.FuncMap
+	lock       *sync.RWMutex
+	root       *template.Template
+	fileLock   *sync.RWMutex
+	files      map[string]time.Time
+	refresher  *time.Ticker
+	exitChan   chan bool
+	configFunc TemplateConfigFunc
 }
 
 // SkinSelector returns a skin name based on the request object
@@ -57,7 +60,7 @@ type SkinManager struct {
 }
 
 // NewTemplateManager creates a template manager for the given dir
-func NewTemplateManager(dir, suffix string, funcs template.FuncMap, refreshInterval time.Duration) *TemplateManager {
+func NewTemplateManager(dir, suffix string, refreshInterval time.Duration, configFunc TemplateConfigFunc) *TemplateManager {
 	dirs := make([]string, 0, 10)
 	tmplFiles := make([]string, 0, 20)
 	filesTime := make(map[string]time.Time)
@@ -91,8 +94,8 @@ func NewTemplateManager(dir, suffix string, funcs template.FuncMap, refreshInter
 	}
 
 	root := template.New("root")
-	if funcs != nil {
-		root.Funcs(funcs)
+	if configFunc != nil {
+		configFunc(root)
 	}
 
 	root, err := root.ParseFiles(tmplFiles...)
@@ -102,13 +105,13 @@ func NewTemplateManager(dir, suffix string, funcs template.FuncMap, refreshInter
 	}
 
 	mgr := &TemplateManager{
-		lock:      &sync.RWMutex{},
-		root:      root,
-		fileLock:  &sync.RWMutex{},
-		files:     filesTime,
-		refresher: time.NewTicker(refreshInterval),
-		exitChan:  make(chan bool),
-		funcs:     funcs,
+		lock:       &sync.RWMutex{},
+		root:       root,
+		fileLock:   &sync.RWMutex{},
+		files:      filesTime,
+		refresher:  time.NewTicker(refreshInterval),
+		exitChan:   make(chan bool),
+		configFunc: configFunc,
 	}
 
 	go func() {
@@ -171,8 +174,8 @@ func (manager *TemplateManager) refreshTemplates() {
 
 		if t.Before(stat.ModTime()) {
 			root := template.New("root")
-			if manager.funcs != nil {
-				root.Funcs(manager.funcs)
+			if manager.configFunc != nil {
+				manager.configFunc(root)
 			}
 
 			root, err := root.ParseFiles(files...)
