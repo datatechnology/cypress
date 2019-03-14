@@ -112,7 +112,7 @@ func testActions(t *testing.T) []Action {
 					Message: "Page Content",
 				}
 
-				response.DoneWithTemplate(http.StatusOK, model, "index.tmpl", "header.tmpl")
+				response.DoneWithTemplate(http.StatusOK, "index", model)
 			}),
 		},
 	}
@@ -150,13 +150,13 @@ func TestWebServer(t *testing.T) {
 	defer os.RemoveAll(testDir)
 
 	// write template files
-	err = ioutil.WriteFile(path.Join(testDir, "header.tmpl"), []byte("{{.}}"), os.ModePerm)
+	err = ioutil.WriteFile(path.Join(testDir, "header.tmpl"), []byte("{{define \"header\"}}{{.}}{{end}}"), os.ModePerm)
 	if err != nil {
 		t.Error("failed to setup header.tmpl")
 		return
 	}
 
-	err = ioutil.WriteFile(path.Join(testDir, "index.tmpl"), []byte("{{template \"header.tmpl\" .Title}}{{.Message}}{{add 1 1}}"), os.ModePerm)
+	err = ioutil.WriteFile(path.Join(testDir, "index.tmpl"), []byte("{{define \"index\"}}{{template \"header\" .Title}}{{.Message}}{{add 1 1}}{{end}}"), os.ModePerm)
 	if err != nil {
 		t.Error("failed to setup index.tmpl")
 		return
@@ -164,12 +164,11 @@ func TestWebServer(t *testing.T) {
 
 	writer := NewBufferWriter()
 	SetupLogger(LogLevelDebug, writer)
-	tmplMgr := NewTemplateManager(testDir, time.Second*10)
-	tmplMgr.Funcs(template.FuncMap{
+	tmplMgr := NewTemplateManager(testDir, ".tmpl", template.FuncMap{
 		"add": func(a, b int) int {
 			return a + b
 		},
-	})
+	}, time.Second*10)
 	defer tmplMgr.Close()
 	server := NewWebServer(":8099", NewSkinManager(tmplMgr))
 	defer server.Shutdown()
@@ -239,14 +238,14 @@ func TestWebServer(t *testing.T) {
 		StatusCode int    `json:"responseStatus"`
 	}
 
-	if len(writer.Buffer) != 2 {
-		t.Error("expecting 2 log items but got", len(writer.Buffer))
+	if len(writer.Buffer) != 5 {
+		t.Error("expecting 5 log items but got", len(writer.Buffer))
 		return
 	}
 
 	log1 := routerLog{}
 	log2 := apiLog{}
-	err = json.Unmarshal(writer.Buffer[0], &log1)
+	err = json.Unmarshal(writer.Buffer[3], &log1)
 	if err != nil {
 		t.Error("bad log item", err)
 		return
@@ -262,7 +261,7 @@ func TestWebServer(t *testing.T) {
 		return
 	}
 
-	err = json.Unmarshal(writer.Buffer[1], &log2)
+	err = json.Unmarshal(writer.Buffer[4], &log2)
 
 	if err != nil {
 		t.Error("bad log item", err)

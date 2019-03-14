@@ -206,17 +206,15 @@ func (r *Response) DoneWithError(statusCode int, msg string) {
 
 // DoneWithTemplate sets the status and write the model with the given template name as
 // response, the content type is defaulted to text/html
-func (r *Response) DoneWithTemplate(statusCode int, model interface{}, tmplFiles ...string) {
-	tmpl, err := r.tmplMgr.GetOrCreateTemplate(tmplFiles...)
-	if err != nil {
-		zap.L().Error("failedToGetTemplate", zap.Error(err), zap.String("file", tmplFiles[0]), zap.String("activityId", r.traceID))
-		r.DoneWithError(http.StatusInternalServerError, "Template not found")
-		return
-	}
-
+func (r *Response) DoneWithTemplate(statusCode int, name string, model interface{}) {
 	r.SetStatus(statusCode)
 	r.SetHeader("Content-Type", "text/html; charset=UTF-8")
-	tmpl.Execute(r.writer, model)
+	err := r.tmplMgr.Execute(r.writer, name, model)
+	if err != nil {
+		zap.L().Error("failedToGetTemplate", zap.Error(err), zap.String("name", name), zap.String("activityId", r.traceID))
+		errorTemplate.Execute(r.writer, &errorPage{statusCode, "Template error", ServerName, ServerVersion})
+		return
+	}
 }
 
 // DoneWithJSON sets the status and write the model as json

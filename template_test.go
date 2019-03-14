@@ -1,7 +1,6 @@
 package cypress
 
 import (
-	"encoding/json"
 	"html/template"
 	"io/ioutil"
 	"os"
@@ -36,19 +35,19 @@ func TestTemplateManager(t *testing.T) {
 	defer os.RemoveAll(testDir)
 
 	// write template files
-	err = ioutil.WriteFile(path.Join(testDir, "header.tmpl"), []byte("{{.}}"), os.ModePerm)
+	err = ioutil.WriteFile(path.Join(testDir, "header.tmpl"), []byte("{{define \"header\"}}{{.}}{{end}}"), os.ModePerm)
 	if err != nil {
 		t.Error("failed to setup header.tmpl")
 		return
 	}
 
-	err = ioutil.WriteFile(path.Join(testDir, "index.tmpl"), []byte("{{template \"header.tmpl\" .Title}}{{.Message}}{{add 1 1}}"), os.ModePerm)
+	err = ioutil.WriteFile(path.Join(testDir, "index.tmpl"), []byte("{{define \"index\"}}{{template \"header\" .Title}}{{.Message}}{{add 1 1}}{{end}}"), os.ModePerm)
 	if err != nil {
 		t.Error("failed to setup index.tmpl")
 		return
 	}
 
-	err = ioutil.WriteFile(path.Join(testDir, "index1.tmpl"), []byte("{{template \"header.tmpl\" .Title}}{{.Message}}"), os.ModePerm)
+	err = ioutil.WriteFile(path.Join(testDir, "index1.tmpl"), []byte("{{define \"index1\"}}{{template \"header\" .Title}}{{.Message}}{{end}}"), os.ModePerm)
 	if err != nil {
 		t.Error("failed to setup index1.tmpl")
 		return
@@ -61,23 +60,16 @@ func TestTemplateManager(t *testing.T) {
 		"add": func(a, b int32) int32 { return a + b },
 	}
 
-	tmplMgr := NewTemplateManager(testDir, time.Second).Funcs(funcMap)
+	tmplMgr := NewTemplateManager(testDir, ".tmpl", funcMap, time.Second)
 	defer tmplMgr.Close()
-	tmpl, err := tmplMgr.GetOrCreateTemplate("index.tmpl", "header.tmpl")
-	if err != nil {
-		t.Error("failed to get index.tmpl template", err)
-		return
-	}
-
-	tmpl1, err := tmplMgr.GetOrCreateTemplate("index1.tmpl", "header.tmpl")
-	if err != nil {
-		t.Error("failed to get index1.tmpl template", err)
-		return
-	}
-
 	resultWriter := NewBufferWriter()
 	model := &TestModel{"title", "message"}
-	tmpl.Execute(resultWriter, model)
+	err = tmplMgr.Execute(resultWriter, "index", model)
+	if err != nil {
+		t.Error("failed to execute index", err)
+		return
+	}
+
 	result := readBuffer(resultWriter.Buffer)
 	if result != "titlemessage2" {
 		t.Error("expected titlemessage2 but got", result)
@@ -85,7 +77,12 @@ func TestTemplateManager(t *testing.T) {
 	}
 
 	resultWriter = NewBufferWriter()
-	tmpl1.Execute(resultWriter, model)
+	err = tmplMgr.Execute(resultWriter, "index1", model)
+	if err != nil {
+		t.Error("failed to execute index1")
+		return
+	}
+
 	result = readBuffer(resultWriter.Buffer)
 
 	if result != "titlemessage" {
@@ -93,53 +90,23 @@ func TestTemplateManager(t *testing.T) {
 		return
 	}
 
-	_, err = tmplMgr.GetOrCreateTemplate("index.tmpl", "header.tmpl")
-	if err != nil {
-		t.Error("failed to get index.tmpl template", err)
-		return
-	}
-
-	if len(writer.Buffer) != 1 {
-		t.Error("expected one log entry but got", len(writer.Buffer))
-		return
-	}
-
-	type log struct {
-		Level   string `json:"level"`
-		Message string `json:"msg"`
-		Name    string `json:"name"`
-	}
-
-	l := log{}
-	err = json.Unmarshal(writer.Buffer[0], &l)
-	if err != nil {
-		t.Error("bad log entry", err)
-		return
-	}
-
-	if l.Level != "debug" || l.Message != "templateCacheHit" || l.Name != "index.tmpl" {
-		t.Error("unexpected log entry", string(writer.Buffer[0]))
-		return
-	}
-
 	// test reload
 	// don't change too quick
 	time.Sleep(time.Millisecond * 50)
-	err = ioutil.WriteFile(path.Join(testDir, "header.tmpl"), []byte("{{.}}updated"), os.ModePerm)
+	err = ioutil.WriteFile(path.Join(testDir, "header.tmpl"), []byte("{{define \"header\"}}{{.}}updated{{end}}"), os.ModePerm)
 	if err != nil {
 		t.Error("failed to update header.tmpl")
 		return
 	}
 
 	time.Sleep(time.Second * 2)
-	tmpl2, err := tmplMgr.GetOrCreateTemplate("index.tmpl", "header.tmpl")
+	resultWriter = NewBufferWriter()
+	err = tmplMgr.Execute(resultWriter, "index", model)
 	if err != nil {
-		t.Error(err)
+		t.Error("failed to execute index")
 		return
 	}
 
-	resultWriter = NewBufferWriter()
-	tmpl2.Execute(resultWriter, model)
 	result = readBuffer(resultWriter.Buffer)
 	if result != "titleupdatedmessage2" {
 		t.Error("expected titleupdatedmessage2 but got", result)
@@ -159,13 +126,13 @@ func TestSkinManager(t *testing.T) {
 	defer os.RemoveAll(testDir1)
 
 	// write template files
-	err = ioutil.WriteFile(path.Join(testDir1, "header.tmpl"), []byte("defaultskin{{.}}"), os.ModePerm)
+	err = ioutil.WriteFile(path.Join(testDir1, "header.tmpl"), []byte("{{define \"header\"}}defaultskin{{.}}{{end}}"), os.ModePerm)
 	if err != nil {
 		t.Error("failed to setup header.tmpl")
 		return
 	}
 
-	err = ioutil.WriteFile(path.Join(testDir1, "index.tmpl"), []byte("{{template \"header.tmpl\" .Title}}{{.Message}}"), os.ModePerm)
+	err = ioutil.WriteFile(path.Join(testDir1, "index.tmpl"), []byte("{{define \"index\"}}{{template \"header\" .Title}}{{.Message}}{{end}}"), os.ModePerm)
 	if err != nil {
 		t.Error("failed to setup index.tmpl")
 		return
@@ -173,7 +140,7 @@ func TestSkinManager(t *testing.T) {
 
 	SetupLogger(LogLevelDebug, &DummyWriter{})
 
-	tmplMgr1 := NewTemplateManager(testDir1, time.Second)
+	tmplMgr1 := NewTemplateManager(testDir1, ".tmpl", nil, time.Second)
 	defer tmplMgr1.Close()
 
 	// second skin
@@ -187,46 +154,45 @@ func TestSkinManager(t *testing.T) {
 	defer os.RemoveAll(testDir2)
 
 	// write template files
-	err = ioutil.WriteFile(path.Join(testDir2, "header.tmpl"), []byte("skin1{{.}}"), os.ModePerm)
+	err = ioutil.WriteFile(path.Join(testDir2, "header.tmpl"), []byte("{{define \"header\"}}skin1{{.}}{{end}}"), os.ModePerm)
 	if err != nil {
 		t.Error("failed to setup header.tmpl")
 		return
 	}
 
-	err = ioutil.WriteFile(path.Join(testDir2, "index.tmpl"), []byte("{{template \"header.tmpl\" .Title}}{{.Message}}"), os.ModePerm)
+	err = ioutil.WriteFile(path.Join(testDir2, "index.tmpl"), []byte("{{define \"index\"}}{{template \"header\" .Title}}{{.Message}}{{end}}"), os.ModePerm)
 	if err != nil {
 		t.Error("failed to setup index.tmpl")
 		return
 	}
 
-	tmplMgr2 := NewTemplateManager(testDir2, time.Second)
+	tmplMgr2 := NewTemplateManager(testDir2, ".tmpl", nil, time.Second)
 	defer tmplMgr2.Close()
 
 	skinMgr := NewSkinManager(tmplMgr1)
 	skinMgr.AddSkin("skin1", tmplMgr2)
-	tmpl, err := skinMgr.GetDefaultSkin().GetOrCreateTemplate("index.tmpl", "header.tmpl")
-	if err != nil {
-		t.Error("failed to get template", err)
-		return
-	}
 
 	resultWriter := NewBufferWriter()
 	model := &TestModel{"title", "message"}
-	tmpl.Execute(resultWriter, model)
+	err = skinMgr.GetDefaultSkin().Execute(resultWriter, "index", model)
+	if err != nil {
+		t.Error("failed to execute index")
+		return
+	}
+
 	result := readBuffer(resultWriter.Buffer)
 	if result != "defaultskintitlemessage" {
 		t.Error("expected defaultskintitlemessage but got", result)
 		return
 	}
 
-	tmpl, err = skinMgr.GetSkinOrDefault("skin1").GetOrCreateTemplate("index.tmpl", "header.tmpl")
+	resultWriter = NewBufferWriter()
+	err = skinMgr.GetSkinOrDefault("skin1").Execute(resultWriter, "index", model)
 	if err != nil {
-		t.Error("failed to get template", err)
+		t.Error("failed to execute index")
 		return
 	}
 
-	resultWriter = NewBufferWriter()
-	tmpl.Execute(resultWriter, model)
 	result = readBuffer(resultWriter.Buffer)
 
 	if result != "skin1titlemessage" {
@@ -234,14 +200,13 @@ func TestSkinManager(t *testing.T) {
 		return
 	}
 
-	tmpl, err = skinMgr.GetSkinOrDefault("skin2").GetOrCreateTemplate("index.tmpl", "header.tmpl")
+	resultWriter = NewBufferWriter()
+	err = skinMgr.GetSkinOrDefault("skin2").Execute(resultWriter, "index", model)
 	if err != nil {
-		t.Error("failed to get template", err)
+		t.Error("failed to execute index")
 		return
 	}
 
-	resultWriter = NewBufferWriter()
-	tmpl.Execute(resultWriter, model)
 	result = readBuffer(resultWriter.Buffer)
 
 	if result != "defaultskintitlemessage" {
@@ -261,14 +226,13 @@ func TestSkinManager(t *testing.T) {
 		return
 	}
 
-	tmpl, err = m.GetOrCreateTemplate("index.tmpl", "header.tmpl")
+	resultWriter = NewBufferWriter()
+	err = m.Execute(resultWriter, "index", model)
 	if err != nil {
-		t.Error("failed to get template", err)
+		t.Error("failed to execute index")
 		return
 	}
 
-	resultWriter = NewBufferWriter()
-	tmpl.Execute(resultWriter, model)
 	result = readBuffer(resultWriter.Buffer)
 
 	if result != "skin1titlemessage" {
