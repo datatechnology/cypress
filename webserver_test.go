@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"strings"
 	"testing"
 	"time"
 
@@ -170,6 +171,8 @@ func TestWebServer(t *testing.T) {
 				return a + b
 			},
 		})
+	}, func(path string) bool {
+		return strings.HasSuffix(path, "header.tmpl")
 	})
 	defer tmplMgr.Close()
 	server := NewWebServer(":8099", NewSkinManager(tmplMgr))

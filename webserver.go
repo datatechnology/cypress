@@ -5,6 +5,7 @@ import (
 	"errors"
 	"html/template"
 	"net/http"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
@@ -207,12 +208,19 @@ func (r *Response) DoneWithError(statusCode int, msg string) {
 // DoneWithTemplate sets the status and write the model with the given template name as
 // response, the content type is defaulted to text/html
 func (r *Response) DoneWithTemplate(statusCode int, name string, model interface{}) {
+	tmpl, ok := r.tmplMgr.GetTemplate(name)
+	if !ok {
+		zap.L().Error("templateNotFound", zap.String("name", name), zap.String("activityId", r.traceID))
+		SendError(r.writer, 500, "service configuration error")
+		return
+	}
+
 	r.SetStatus(statusCode)
 	r.SetHeader("Content-Type", "text/html; charset=UTF-8")
-	err := r.tmplMgr.Execute(r.writer, name, model)
+	err := tmpl.ExecuteTemplate(r.writer, filepath.Base(name), model)
 	if err != nil {
-		zap.L().Error("failedToGetTemplate", zap.Error(err), zap.String("name", name), zap.String("activityId", r.traceID))
-		errorTemplate.Execute(r.writer, &errorPage{statusCode, "Template error", ServerName, ServerVersion})
+		zap.L().Error("failedToExecuteTemplate", zap.Error(err), zap.String("name", name), zap.String("activityId", r.traceID))
+		errorTemplate.Execute(r.writer, &errorPage{statusCode, "template error", ServerName, ServerVersion})
 		return
 	}
 }

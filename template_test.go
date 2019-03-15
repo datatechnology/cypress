@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"strings"
 	"testing"
 	"time"
 )
@@ -30,6 +31,10 @@ func TestTemplateManager(t *testing.T) {
 	if err != nil {
 		t.Error("failed to create test dir", err)
 		return
+	}
+
+	sharedDetector := func(path string) bool {
+		return strings.HasSuffix(path, "header.tmpl")
 	}
 
 	defer os.RemoveAll(testDir)
@@ -62,11 +67,16 @@ func TestTemplateManager(t *testing.T) {
 
 	tmplMgr := NewTemplateManager(testDir, ".tmpl", time.Second, func(root *template.Template) {
 		root.Funcs(funcMap)
-	})
+	}, sharedDetector)
 	defer tmplMgr.Close()
 	resultWriter := NewBufferWriter()
 	model := &TestModel{"title", "message"}
-	err = tmplMgr.Execute(resultWriter, "index", model)
+	tmpl, ok := tmplMgr.GetTemplate("index")
+	if !ok {
+		t.Error("failed to find template index")
+		return
+	}
+	err = tmpl.ExecuteTemplate(resultWriter, "index", model)
 	if err != nil {
 		t.Error("failed to execute index", err)
 		return
@@ -79,7 +89,12 @@ func TestTemplateManager(t *testing.T) {
 	}
 
 	resultWriter = NewBufferWriter()
-	err = tmplMgr.Execute(resultWriter, "index1", model)
+	tmpl, ok = tmplMgr.GetTemplate("index1")
+	if !ok {
+		t.Error("failed to find template index1")
+		return
+	}
+	err = tmpl.ExecuteTemplate(resultWriter, "index1", model)
 	if err != nil {
 		t.Error("failed to execute index1")
 		return
@@ -103,7 +118,13 @@ func TestTemplateManager(t *testing.T) {
 
 	time.Sleep(time.Second * 2)
 	resultWriter = NewBufferWriter()
-	err = tmplMgr.Execute(resultWriter, "index", model)
+	tmpl, ok = tmplMgr.GetTemplate("index")
+	if !ok {
+		t.Error("failed to find template index")
+		return
+	}
+
+	err = tmpl.ExecuteTemplate(resultWriter, "index", model)
 	if err != nil {
 		t.Error("failed to execute index")
 		return
@@ -127,6 +148,10 @@ func TestSkinManager(t *testing.T) {
 
 	defer os.RemoveAll(testDir1)
 
+	sharedDetector := func(path string) bool {
+		return strings.HasSuffix(path, "header.tmpl")
+	}
+
 	// write template files
 	err = ioutil.WriteFile(path.Join(testDir1, "header.tmpl"), []byte("{{define \"header\"}}defaultskin{{.}}{{end}}"), os.ModePerm)
 	if err != nil {
@@ -142,7 +167,7 @@ func TestSkinManager(t *testing.T) {
 
 	SetupLogger(LogLevelDebug, &DummyWriter{})
 
-	tmplMgr1 := NewTemplateManager(testDir1, ".tmpl", time.Second, nil)
+	tmplMgr1 := NewTemplateManager(testDir1, ".tmpl", time.Second, nil, sharedDetector)
 	defer tmplMgr1.Close()
 
 	// second skin
@@ -168,7 +193,7 @@ func TestSkinManager(t *testing.T) {
 		return
 	}
 
-	tmplMgr2 := NewTemplateManager(testDir2, ".tmpl", time.Second, nil)
+	tmplMgr2 := NewTemplateManager(testDir2, ".tmpl", time.Second, nil, sharedDetector)
 	defer tmplMgr2.Close()
 
 	skinMgr := NewSkinManager(tmplMgr1)
@@ -176,7 +201,13 @@ func TestSkinManager(t *testing.T) {
 
 	resultWriter := NewBufferWriter()
 	model := &TestModel{"title", "message"}
-	err = skinMgr.GetDefaultSkin().Execute(resultWriter, "index", model)
+	tmpl, ok := skinMgr.GetDefaultSkin().GetTemplate("index")
+	if !ok {
+		t.Error("template index not found")
+		return
+	}
+
+	err = tmpl.ExecuteTemplate(resultWriter, "index", model)
 	if err != nil {
 		t.Error("failed to execute index")
 		return
@@ -189,7 +220,13 @@ func TestSkinManager(t *testing.T) {
 	}
 
 	resultWriter = NewBufferWriter()
-	err = skinMgr.GetSkinOrDefault("skin1").Execute(resultWriter, "index", model)
+	tmpl, ok = skinMgr.GetSkinOrDefault("skin1").GetTemplate("index")
+	if !ok {
+		t.Error("template index not found")
+		return
+	}
+
+	err = tmpl.ExecuteTemplate(resultWriter, "index", model)
 	if err != nil {
 		t.Error("failed to execute index")
 		return
@@ -203,7 +240,17 @@ func TestSkinManager(t *testing.T) {
 	}
 
 	resultWriter = NewBufferWriter()
-	err = skinMgr.GetSkinOrDefault("skin2").Execute(resultWriter, "index", model)
+	tmpl, ok = skinMgr.GetSkinOrDefault("skin2").GetTemplate("index")
+	if !ok {
+		t.Error("template index not found")
+		return
+	}
+
+	err = tmpl.ExecuteTemplate(resultWriter, "index", model)
+	if err != nil {
+		t.Error("failed to execute index")
+		return
+	}
 	if err != nil {
 		t.Error("failed to execute index")
 		return
@@ -229,7 +276,17 @@ func TestSkinManager(t *testing.T) {
 	}
 
 	resultWriter = NewBufferWriter()
-	err = m.Execute(resultWriter, "index", model)
+	tmpl, ok = m.GetTemplate("index")
+	if !ok {
+		t.Error("template index not found")
+		return
+	}
+
+	err = tmpl.ExecuteTemplate(resultWriter, "index", model)
+	if err != nil {
+		t.Error("failed to execute index")
+		return
+	}
 	if err != nil {
 		t.Error("failed to execute index")
 		return
