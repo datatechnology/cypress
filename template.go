@@ -121,9 +121,9 @@ func NewTemplateManager(dir, suffix string, refreshInterval time.Duration, confi
 		t, err := shared.ParseFiles(sharedFiles...)
 		if err != nil {
 			zap.L().Error("failed to parse files into shared template, shared will be defaulted to empty", zap.Error(err))
+		} else {
+			shared = t
 		}
-
-		shared = t
 	}
 
 	templates := make(map[string]*template.Template)
@@ -241,10 +241,12 @@ func (manager *TemplateManager) refreshTemplates() {
 
 		t, err := shared.ParseFiles(manager.sharedFiles...)
 		if err != nil {
+			manager.shared = shared
 			zap.L().Error("failed to parse files into shared template, shared will be defaulted to empty", zap.Error(err))
+		} else {
+			manager.shared = t
 		}
 
-		manager.shared = t
 		filesToReparse = files
 	}
 
