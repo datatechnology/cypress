@@ -361,7 +361,7 @@ func TestWebServer(t *testing.T) {
 
 	sess, _ := sessionStore.Get("abc123")
 	val, _ := sess.GetValue("captcha")
-	fmt.Println("challenge", val.([]byte))
+	fmt.Println("challenge", val.(string))
 
 	defer resp.Body.Close()
 

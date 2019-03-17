@@ -27,6 +27,12 @@ var (
 	// ServerVersion version of the server
 	ServerVersion = "v0.1.1110"
 
+	// CaptchaKey captcha key in session
+	CaptchaKey = "captcha"
+
+	// CaptchaSessionKey captcha alternative session key parameter name
+	CaptchaSessionKey = "sessid"
+
 	// NotFoundMsg message to be shown when resource not found
 	NotFoundMsg = "Sorry, we are not able to find the resource you requested"
 
@@ -171,6 +177,11 @@ func AsController(c interface{}) ControllerFunc {
 // SetHeader sets a header value for response
 func (r *Response) SetHeader(name, value string) {
 	r.writer.Header().Add(name, value)
+}
+
+// SetCookie add cookie to response
+func (r *Response) SetCookie(cookie *http.Cookie) {
+	http.SetCookie(r.writer, cookie)
 }
 
 // SetStatus sets the response status
@@ -416,7 +427,7 @@ func (server *WebServer) createCaptcha(writer http.ResponseWriter, request *http
 	var session *Session
 	var err error
 	customSession := false
-	sessid := request.FormValue("sessid")
+	sessid := request.FormValue(CaptchaSessionKey)
 	if sessid != "" {
 		session, err = server.sessionStore.Get(sessid)
 		if err != nil && err != ErrSessionNotFound {
@@ -442,13 +453,17 @@ func (server *WebServer) createCaptcha(writer http.ResponseWriter, request *http
 	}
 
 	digits := captcha.RandomDigits(server.captchaDigits)
-	session.SetValue("captcha", digits)
-
 	image := captcha.NewImage(session.ID, digits, server.captchaWidth, server.captchaHeight)
 	if image == nil {
 		SendError(writer, http.StatusInternalServerError, "failed to generate captcha image")
 		return
 	}
+
+	for i := range digits {
+		digits[i] += 48
+	}
+
+	session.SetValue(CaptchaKey, string(digits))
 
 	if customSession {
 		err := server.sessionStore.Save(session, time.Minute*5)
