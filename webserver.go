@@ -201,6 +201,11 @@ func (r *Response) SetNoCache() {
 	r.SetHeader("Pragma", "no-cache")
 }
 
+// DoneWithRedirect redirects to the specified url
+func (r *Response) DoneWithRedirect(req *http.Request, url string, status int) {
+	http.Redirect(r.writer, req, url, status)
+}
+
 // DoneWithContent sets the status, content-type header and writes
 // the content to response
 func (r *Response) DoneWithContent(statusCode int, contentType string, content []byte) {
