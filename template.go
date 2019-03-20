@@ -221,11 +221,17 @@ func (manager *TemplateManager) refreshTemplates() {
 		}
 
 		if t.Before(stat.ModTime()) {
+			func() {
+				manager.fileLock.Lock()
+				defer manager.fileLock.Unlock()
+				manager.files[file] = stat.ModTime()
+			}()
+
 			if manager.sharedTemplateDetector(file) {
 				// a shared template file has been changed, so we need to re-parse
-				// all templates
+				// all templates, let the loop continue to allow detect and update
+				// last updated time for all files
 				reparseAll = true
-				break // no need to continue
 			} else {
 				// only the given template need to be updated
 				filesToReparse = append(filesToReparse, file)
