@@ -13,8 +13,8 @@ var (
 
 // FieldValueGetter the field value pointer retriever
 type FieldValueGetter struct {
-	name        string
-	getterStack []*FieldValueGetter
+	name   string
+	parent *FieldValueGetter
 }
 
 type gettersCache struct {
@@ -24,7 +24,7 @@ type gettersCache struct {
 
 // NewFieldValueGetter creates a new FieldValueGetter object
 func NewFieldValueGetter(fieldName string) *FieldValueGetter {
-	return &FieldValueGetter{fieldName, make([]*FieldValueGetter, 0, 4)}
+	return &FieldValueGetter{fieldName, nil}
 }
 
 // Get gets the field value object, the field value object should be settable
@@ -36,33 +36,34 @@ func (getter *FieldValueGetter) Get(value reflect.Value) reflect.Value {
 	}
 
 	thisValue := value
-	for _, ancestor := range getter.getterStack {
-		thisValue = ancestor.Get(thisValue)
+	if getter.parent != nil {
+		thisValue = getter.parent.Get(thisValue)
 	}
 
 	fieldValue := thisValue.FieldByName(getter.name)
 	if fieldValue.Type().Kind() == reflect.Ptr {
-		fieldObject := reflect.New(fieldValue.Type().Elem())
-		fieldValue.Set(fieldObject)
-		return fieldObject.Elem()
+		if fieldValue.IsNil() {
+			fieldObject := reflect.New(fieldValue.Type().Elem())
+			fieldValue.Set(fieldObject)
+		}
+
+		return fieldValue.Elem()
 	}
 
 	return fieldValue
-}
-
-// Push pushes an ancestor getter to the getter stack, which is
-// used to resolve the value object that this getter works on
-func (getter *FieldValueGetter) Push(ancestor *FieldValueGetter) {
-	getter.getterStack = append(getter.getterStack, ancestor)
 }
 
 // GetFieldValueGetters gets all possible FieldValueGetters for the
 // give type t
 func GetFieldValueGetters(t reflect.Type) map[string]*FieldValueGetter {
 	typeName := t.PkgPath() + "/" + t.Name()
-	globalGettersCache.lock.RLock()
-	cache, ok := globalGettersCache.cache[typeName]
-	globalGettersCache.lock.RUnlock()
+	var cache map[string]*FieldValueGetter
+	var ok bool
+	func() {
+		globalGettersCache.lock.RLock()
+		defer globalGettersCache.lock.RUnlock()
+		cache, ok = globalGettersCache.cache[typeName]
+	}()
 	if ok {
 		return cache
 	}
@@ -121,7 +122,7 @@ func GetFieldValueGetters(t reflect.Type) map[string]*FieldValueGetter {
 
 				getter := NewFieldValueGetter(field.Name)
 				if current.Getter != nil {
-					getter.Push(current.Getter)
+					getter.parent = current.Getter
 				}
 
 				typeChain := make([]reflect.Type, len(current.Types)+1)
@@ -131,7 +132,7 @@ func GetFieldValueGetters(t reflect.Type) map[string]*FieldValueGetter {
 			} else {
 				g := NewFieldValueGetter(field.Name)
 				if current.Getter != nil {
-					g.Push(current.Getter)
+					g.parent = current.Getter
 				}
 
 				getters[current.Prefix+name] = g

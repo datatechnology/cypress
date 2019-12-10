@@ -3,9 +3,11 @@ package cypress
 import (
 	"errors"
 	"html/template"
+	"io/ioutil"
 	"net/http"
 	"os"
-	"path"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,29 +22,32 @@ var (
 	SkinDefault = "default"
 )
 
-type templateInfo struct {
-	files []string
-	tmpl  *template.Template
-}
-
 type templateFileInfo struct {
 	file        string
-	references  []*templateInfo
 	lastModifed time.Time
-	lock        *sync.RWMutex
 }
+
+// TemplateConfigFunc shared templates config function
+type TemplateConfigFunc func(*template.Template)
+
+// SharedTemplateDetector detector used to check if the given
+// path is a shared template or not
+type SharedTemplateDetector func(string) bool
 
 // TemplateManager manages the templates by groups and update template group on-demand
 // based on the template file update timestamp
 type TemplateManager struct {
-	dir       string
-	lock      *sync.RWMutex
-	templates map[string]*template.Template
-	fileLock  *sync.RWMutex
-	files     map[string]*templateFileInfo
-	refresher *time.Ticker
-	exitChan  chan bool
-	funcs     template.FuncMap
+	dir                    string
+	lock                   *sync.RWMutex
+	shared                 *template.Template
+	templates              map[string]*template.Template
+	fileLock               *sync.RWMutex
+	files                  map[string]time.Time
+	sharedFiles            []string
+	refresher              *time.Ticker
+	exitChan               chan bool
+	configFunc             TemplateConfigFunc
+	sharedTemplateDetector SharedTemplateDetector
 }
 
 // SkinSelector returns a skin name based on the request object
@@ -63,16 +68,92 @@ type SkinManager struct {
 }
 
 // NewTemplateManager creates a template manager for the given dir
-func NewTemplateManager(dir string, refreshInterval time.Duration) *TemplateManager {
+func NewTemplateManager(dir, suffix string, refreshInterval time.Duration, configFunc TemplateConfigFunc, sharedTemplateDetector SharedTemplateDetector) *TemplateManager {
+	dirs := make([]string, 0, 10)
+	sharedFiles := make([]string, 0, 20)
+	tmplFiles := make([]string, 0, 20)
+	filesTime := make(map[string]time.Time)
+	sharedDetector := sharedTemplateDetector
+	if sharedDetector == nil {
+		sharedDetector = func(path string) bool {
+			return strings.HasPrefix(path, "shared/") || strings.Contains(path, "/shared/")
+		}
+	}
+
+	// scan dir for all template files
+	dirs = append(dirs, dir)
+	for len(dirs) > 0 {
+		current := dirs[0]
+		dirs = dirs[1:]
+		if !strings.HasSuffix(current, "/") {
+			current = current + "/"
+		}
+
+		zap.L().Info("scan for template files", zap.String("dir", current), zap.String("suffix", suffix))
+		files, err := ioutil.ReadDir(current)
+		if err != nil {
+			zap.L().Error("failed to scan directory for template files", zap.String("dir", current), zap.Error(err))
+			continue
+		}
+
+		for _, file := range files {
+			if file.IsDir() {
+				dirs = append(dirs, current+file.Name()+"/")
+			} else if strings.HasSuffix(file.Name(), suffix) {
+				zap.L().Info("template file found", zap.String("file", file.Name()))
+				path := current + file.Name()
+				filesTime[path] = file.ModTime()
+				if sharedDetector(path) {
+					sharedFiles = append(sharedFiles, path)
+				} else {
+					tmplFiles = append(tmplFiles, path)
+				}
+			}
+		}
+	}
+
+	shared := template.New("cypress$shared$root")
+	if configFunc != nil {
+		configFunc(shared)
+	}
+
+	if len(sharedFiles) > 0 {
+		t, err := shared.ParseFiles(sharedFiles...)
+		if err != nil {
+			zap.L().Error("failed to parse files into shared template, shared will be defaulted to empty", zap.Error(err))
+		} else {
+			shared = t
+		}
+	}
+
+	templates := make(map[string]*template.Template)
+	for _, file := range tmplFiles {
+		key := strings.Trim(strings.TrimPrefix(strings.TrimSuffix(file, filepath.Ext(file)), dir), "/\\")
+		tmpl, err := shared.Clone()
+		if err != nil {
+			zap.L().Error("failed to clone shared template", zap.Error(err), zap.String("file", file))
+		} else {
+			tmpl, err = tmpl.ParseFiles(file)
+			if err != nil {
+				zap.L().Error("failed to parse template file", zap.Error(err), zap.String("file", file))
+			} else {
+				templates[key] = tmpl
+			}
+		}
+	}
+
 	mgr := &TemplateManager{
-		dir:       dir,
-		lock:      &sync.RWMutex{},
-		templates: make(map[string]*template.Template),
-		fileLock:  &sync.RWMutex{},
-		files:     make(map[string]*templateFileInfo),
-		refresher: time.NewTicker(refreshInterval),
-		exitChan:  make(chan bool),
-		funcs:     nil,
+		dir:                    dir,
+		lock:                   &sync.RWMutex{},
+		shared:                 shared,
+		templates:              templates,
+		fileLock:               &sync.RWMutex{},
+		files:                  filesTime,
+		sharedFiles:            sharedFiles,
+		refresher:              time.NewTicker(refreshInterval),
+		exitChan:               make(chan bool),
+		configFunc:             configFunc,
+		sharedTemplateDetector: sharedDetector,
 	}
 
 	go func() {
@@ -96,125 +177,103 @@ func (manager *TemplateManager) Close() {
 	close(manager.exitChan)
 }
 
-// Funcs add a funcMap to TemplateManager
-func (manager *TemplateManager) Funcs(funcMap template.FuncMap) *TemplateManager {
-	manager.funcs = funcMap
-	return manager
-}
-
-// GetOrCreateTemplate gets a template from cache or create a new template
-// if no cache found
-func (manager *TemplateManager) GetOrCreateTemplate(files ...string) (*template.Template, error) {
-	if len(files) == 0 {
-		return nil, ErrNoFile
-	}
-
-	name := path.Base(files[0])
+// GetTemplate retrieve a template with the specified name from
+// template manager, this returns the template and a boolean value
+// to indicate if the template is found or not
+func (manager *TemplateManager) GetTemplate(name string) (*template.Template, bool) {
 	manager.lock.RLock()
-	tmpl, ok := manager.templates[name]
-	manager.lock.RUnlock()
-	if ok {
-		zap.L().Debug("templateCacheHit", zap.String("name", name))
-		return tmpl, nil
-	}
-
-	resolvedFiles := make([]string, len(files))
-	for index, file := range files {
-		resolvedFiles[index] = path.Join(manager.dir, file)
-	}
-
-	tmpl = template.New(name).Funcs(manager.funcs)
-	tmpl, err := tmpl.ParseFiles(resolvedFiles...)
-	if err != nil {
-		return nil, err
-	}
-
-	manager.lock.Lock()
-	manager.templates[name] = tmpl
-	manager.lock.Unlock()
-
-	for _, resolvedFile := range resolvedFiles {
-		manager.fileLock.RLock()
-		fileInfo, ok := manager.files[resolvedFile]
-		manager.fileLock.RUnlock()
-
-		if !ok {
-			stat, err := os.Stat(resolvedFile)
-			if err != nil {
-				zap.L().Error("unexpectedStatError", zap.Error(err))
-				return tmpl, nil
-			}
-
-			fileInfo = &templateFileInfo{
-				file:        resolvedFile,
-				references:  make([]*templateInfo, 0, 10),
-				lastModifed: stat.ModTime(),
-				lock:        &sync.RWMutex{},
-			}
-
-			manager.fileLock.Lock()
-			manager.files[resolvedFile] = fileInfo
-			manager.fileLock.Unlock()
-		}
-
-		fileInfo.lock.Lock()
-		fileInfo.references = append(fileInfo.references, &templateInfo{
-			files: resolvedFiles,
-			tmpl:  tmpl,
-		})
-		fileInfo.lock.Unlock()
-	}
-
-	return tmpl, nil
+	defer manager.lock.RUnlock()
+	result, ok := manager.templates[name]
+	return result, ok
 }
 
 func (manager *TemplateManager) refreshTemplates() {
-	manager.fileLock.RLock()
 	files := make([]string, 0, len(manager.files))
-	for key := range manager.files {
-		files = append(files, key)
-	}
+	func() {
+		manager.fileLock.RLock()
+		defer manager.fileLock.RUnlock()
+		for key := range manager.files {
+			files = append(files, key)
+		}
+	}()
 
-	manager.fileLock.RUnlock()
-
+	reparseAll := false
+	filesToReparse := make([]string, 0, 20)
 	for _, file := range files {
+		var t time.Time
+		var ok bool
+
 		stat, err := os.Stat(file)
 		if err != nil {
-			zap.L().Error("unexpectedTmplRefreshError", zap.Error(err))
+			zap.L().Error("failed to get file meta info", zap.Error(err), zap.String("file", file))
 			continue
 		}
 
-		manager.fileLock.RLock()
-		fileInfo, ok := manager.files[file]
-		manager.fileLock.RUnlock()
+		func() {
+			manager.fileLock.RLock()
+			defer manager.fileLock.RUnlock()
+			t, ok = manager.files[file]
+		}()
 
 		if !ok {
-			zap.L().Error("fileInfoBlockNotFound", zap.String("file", file))
+			zap.L().Error("failed to see the file time", zap.String("file", file))
 			continue
 		}
 
-		if fileInfo.lastModifed.Before(stat.ModTime()) {
-			// reduce the lock time, we sacrifies the memory
-			fileInfo.lock.RLock()
-			refs := make([]*templateInfo, len(fileInfo.references))
-			copy(refs, fileInfo.references)
-			fileInfo.lock.RUnlock()
+		if t.Before(stat.ModTime()) {
+			func() {
+				manager.fileLock.Lock()
+				defer manager.fileLock.Unlock()
+				manager.files[file] = stat.ModTime()
+			}()
 
-			for _, ref := range refs {
-				tmplName := path.Base(ref.files[0])
-				tmpl := template.New(tmplName).Funcs(manager.funcs)
-				tmpl, err := tmpl.ParseFiles(ref.files...)
+			if manager.sharedTemplateDetector(file) {
+				// a shared template file has been changed, so we need to re-parse
+				// all templates, let the loop continue to allow detect and update
+				// last updated time for all files
+				reparseAll = true
+			} else {
+				// only the given template need to be updated
+				filesToReparse = append(filesToReparse, file)
+			}
+		}
+	}
+
+	if reparseAll && len(manager.sharedFiles) > 0 {
+		shared := template.New("cypress$shared$root")
+		if manager.configFunc != nil {
+			manager.configFunc(shared)
+		}
+
+		t, err := shared.ParseFiles(manager.sharedFiles...)
+		if err != nil {
+			manager.shared = shared
+			zap.L().Error("failed to parse files into shared template, shared will be defaulted to empty", zap.Error(err))
+		} else {
+			manager.shared = t
+		}
+
+		filesToReparse = files
+	}
+
+	for _, file := range filesToReparse {
+		if !manager.sharedTemplateDetector(file) {
+			name := strings.Trim(strings.TrimPrefix(strings.TrimSuffix(file, filepath.Ext(file)), manager.dir), "/\\")
+			tmpl, err := manager.shared.Clone()
+			if err != nil {
+				zap.L().Error("failed to clone shared template", zap.Error(err), zap.String("file", file))
+			} else {
+				tmpl, err = tmpl.ParseFiles(file)
 				if err != nil {
-					zap.L().Error("failedToRefreshTemplate", zap.String("template", tmplName), zap.String("file", file), zap.Error(err))
-					continue
+					zap.L().Error("failed to parse template file", zap.Error(err), zap.String("file", file))
+				} else {
+					func() {
+						manager.lock.Lock()
+						defer manager.lock.Unlock()
+						manager.templates[name] = tmpl
+					}()
+					zap.L().Info("template file reparsed", zap.String("file", file))
 				}
-
-				manager.lock.Lock()
-				manager.templates[tmplName] = tmpl
-				manager.lock.Unlock()
-
-				fileInfo.lastModifed = stat.ModTime()
-				zap.L().Info("templateRefreshed", zap.String("template", tmplName), zap.String("file", file))
 			}
 		}
 	}

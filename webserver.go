@@ -5,9 +5,12 @@ import (
 	"errors"
 	"html/template"
 	"net/http"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/dchest/captcha"
 
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
@@ -23,6 +26,15 @@ var (
 
 	// ServerVersion version of the server
 	ServerVersion = "v0.1.1110"
+
+	// CaptchaKey captcha key in session
+	CaptchaKey = "captcha"
+
+	// CaptchaSessionKey captcha alternative session key parameter name
+	CaptchaSessionKey = "sessid"
+
+	// NotFoundMsg message to be shown when resource not found
+	NotFoundMsg = "Sorry, we are not able to find the resource you requested"
 
 	requestType  = reflect.TypeOf(http.Request{})
 	responseType = reflect.TypeOf(Response{})
@@ -112,6 +124,9 @@ type WebServer struct {
 	sessionTimeout     time.Duration
 	registeredHandlers map[string]map[string]ActionHandler
 	customHandler      CustomHandler
+	captchaDigits      int
+	captchaWidth       int
+	captchaHeight      int
 }
 
 // SendError complete the request by sending an error message to the client
@@ -143,8 +158,8 @@ func AsController(c interface{}) ControllerFunc {
 
 			typeOfParam1 = typeOfParam1.Elem()
 			typeOfParam2 = typeOfParam2.Elem()
-			if typeOfParam1.AssignableTo(requestType) &&
-				typeOfParam2.AssignableTo(responseType) {
+			if requestType.AssignableTo(typeOfParam1) &&
+				responseType.AssignableTo(typeOfParam2) {
 				actions = append(actions, Action{
 					Name: strings.ToLower(m.Name[0:1]) + m.Name[1:],
 					Handler: ActionHandler(func(request *http.Request, response *Response) {
@@ -164,6 +179,11 @@ func (r *Response) SetHeader(name, value string) {
 	r.writer.Header().Add(name, value)
 }
 
+// SetCookie add cookie to response
+func (r *Response) SetCookie(cookie *http.Cookie) {
+	http.SetCookie(r.writer, cookie)
+}
+
 // SetStatus sets the response status
 func (r *Response) SetStatus(statusCode int) {
 	r.writer.WriteHeader(statusCode)
@@ -179,6 +199,11 @@ func (r *Response) SetNoCache() {
 	r.SetHeader("Expires", "Sat, 6 May 1995 12:00:00 GMT")
 	r.SetHeader("Cache-Control", "no-store, no-cache, must-revalidate")
 	r.SetHeader("Pragma", "no-cache")
+}
+
+// DoneWithRedirect redirects to the specified url
+func (r *Response) DoneWithRedirect(req *http.Request, url string, status int) {
+	http.Redirect(r.writer, req, url, status)
 }
 
 // DoneWithContent sets the status, content-type header and writes
@@ -198,17 +223,22 @@ func (r *Response) DoneWithError(statusCode int, msg string) {
 
 // DoneWithTemplate sets the status and write the model with the given template name as
 // response, the content type is defaulted to text/html
-func (r *Response) DoneWithTemplate(statusCode int, model interface{}, tmplFiles ...string) {
-	tmpl, err := r.tmplMgr.GetOrCreateTemplate(tmplFiles...)
-	if err != nil {
-		zap.L().Error("failedToGetTemplate", zap.Error(err), zap.String("file", tmplFiles[0]), zap.String("activityId", r.traceID))
-		r.DoneWithError(http.StatusInternalServerError, "Template not found")
+func (r *Response) DoneWithTemplate(statusCode int, name string, model interface{}) {
+	tmpl, ok := r.tmplMgr.GetTemplate(name)
+	if !ok {
+		zap.L().Error("templateNotFound", zap.String("name", name), zap.String("activityId", r.traceID))
+		SendError(r.writer, 500, "service configuration error")
 		return
 	}
 
 	r.SetStatus(statusCode)
 	r.SetHeader("Content-Type", "text/html; charset=UTF-8")
-	tmpl.Execute(r.writer, model)
+	err := tmpl.ExecuteTemplate(r.writer, filepath.Base(name), model)
+	if err != nil {
+		zap.L().Error("failedToExecuteTemplate", zap.Error(err), zap.String("name", name), zap.String("activityId", r.traceID))
+		errorTemplate.Execute(r.writer, &errorPage{statusCode, "template error", ServerName, ServerVersion})
+		return
+	}
 }
 
 // DoneWithJSON sets the status and write the model as json
@@ -236,6 +266,9 @@ func NewWebServer(listenAddr string, skinMgr *SkinManager) *WebServer {
 		sessionTimeout:     time.Minute * 30,
 		registeredHandlers: make(map[string]map[string]ActionHandler),
 		customHandler:      nil,
+		captchaDigits:      6,
+		captchaWidth:       captcha.StdWidth,
+		captchaHeight:      captcha.StdHeight,
 	}
 }
 
@@ -249,6 +282,21 @@ func (server *WebServer) HandleFunc(path string, f func(w http.ResponseWriter, r
 // and the web server will route the requests based on the registered controllers.
 func (server *WebServer) WithStandardRouting(prefix string) *WebServer {
 	server.router.HandleFunc(prefix+"/{controller:[_a-zA-Z][_a-zA-Z0-9]*}/{action:[_a-zA-Z][_a-zA-Z0-9]*}", server.routeRequest)
+	return server
+}
+
+// WithCaptchaCustom setup a captcha generator at the given path with custom digits, width and height
+func (server *WebServer) WithCaptchaCustom(path string, digits, width, height int) *WebServer {
+	server.captchaDigits = digits
+	server.captchaWidth = width
+	server.captchaHeight = height
+	server.router.HandleFunc(path, server.createCaptcha)
+	return server
+}
+
+// WithCaptcha setup a captcha generator at the given "path" in a 240 x 80 image with six digits chanllege
+func (server *WebServer) WithCaptcha(path string) *WebServer {
+	server.router.HandleFunc(path, server.createCaptcha)
 	return server
 }
 
@@ -290,9 +338,19 @@ func (server *WebServer) WithLoginURL(loginURL string) *WebServer {
 	return server
 }
 
-//WithCustomHandler add a handler implement CustomHandler
+//WithCustomHandler set or chains a handler to custom handlers chain, the new
+// CustomHandler will be added to the tail of custom handlers chain.
 func (server *WebServer) WithCustomHandler(handler CustomHandler) *WebServer {
-	server.customHandler = handler
+	if server.customHandler == nil {
+		server.customHandler = handler
+	} else {
+		existingHandler := server.customHandler
+		server.customHandler = CustomHandlerFunc(func(h http.Handler) http.Handler {
+			newHandler := handler.PipelineWith(h)
+			return existingHandler.PipelineWith(newHandler)
+		})
+	}
+
 	return server
 }
 
@@ -326,6 +384,9 @@ func (server *WebServer) Shutdown() {
 
 // Start starts the web server
 func (server *WebServer) Start() error {
+	server.router.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		SendError(w, 404, NotFoundMsg)
+	})
 	handler := http.Handler(server.securityHandler.WithPipeline(server.router))
 	if server.customHandler != nil {
 		handler = server.customHandler.PipelineWith(handler)
@@ -364,5 +425,63 @@ func (server *WebServer) routeRequest(writer http.ResponseWriter, request *http.
 		}
 	}
 
-	SendError(writer, http.StatusNotFound, "Sorry, we've tried really hard, but still cannot find anything for you.")
+	SendError(writer, http.StatusNotFound, NotFoundMsg)
+}
+
+func (server *WebServer) createCaptcha(writer http.ResponseWriter, request *http.Request) {
+	var session *Session
+	var err error
+	customSession := false
+	sessid := request.FormValue(CaptchaSessionKey)
+	if sessid != "" {
+		session, err = server.sessionStore.Get(sessid)
+		if err != nil && err != ErrSessionNotFound {
+			zap.L().Error("failed to lookup session store", zap.Error(err))
+			SendError(writer, http.StatusInternalServerError, "unknown error")
+			return
+		}
+
+		if session == nil {
+			session = NewSession(sessid)
+		}
+
+		customSession = true
+	}
+
+	if session == nil {
+		session = GetSession(request)
+	}
+
+	if session == nil {
+		SendError(writer, http.StatusServiceUnavailable, "session is required for handling captcha")
+		return
+	}
+
+	digits := captcha.RandomDigits(server.captchaDigits)
+	image := captcha.NewImage(session.ID, digits, server.captchaWidth, server.captchaHeight)
+	if image == nil {
+		SendError(writer, http.StatusInternalServerError, "failed to generate captcha image")
+		return
+	}
+
+	for i := range digits {
+		digits[i] += 48
+	}
+
+	session.SetValue(CaptchaKey, string(digits))
+
+	if customSession {
+		err := server.sessionStore.Save(session, time.Minute*5)
+		if err != nil {
+			zap.L().Error("failed to save session", zap.Error(err))
+			SendError(writer, http.StatusInternalServerError, "unknown server error")
+			return
+		}
+	}
+
+	writer.Header().Add("Expires", "Sat, 6 May 1995 12:00:00 GMT")
+	writer.Header().Add("Cache-Control", "no-store, no-cache, must-revalidate")
+	writer.Header().Add("Pragma", "no-cache")
+	writer.Header().Add("Content-Type", "image/png")
+	image.WriteTo(writer)
 }
